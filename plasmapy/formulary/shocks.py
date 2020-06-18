@@ -187,6 +187,8 @@ class MhdShock:
         # Solve the system numerically
         x = fsolve(fcn, x0)
 
+        print(self._jump_conditions(x))
+
         # Turn the solutions into a list so values can be popped off
         x = list(x)
 
@@ -270,7 +272,7 @@ if __name__ == "__main__":
         "bx1": 0 * u.T,
         "by1": 0 * u.T,
         "p1": 1e-9 * u.Pa,
-        "n1": 3e3 * u.cm ** -3,
+        "n1": 1e3 * u.cm ** -3,
     }
 
     unknowns = {
