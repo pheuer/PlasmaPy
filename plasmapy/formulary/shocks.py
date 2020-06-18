@@ -126,6 +126,10 @@ class MhdShock:
         # Jump conditions for MHD from
         # http://farside.ph.utexas.edu/teaching/plasma/Plasmahtml/node79.html
 
+        # These equations need to be re-factored to be normalized to be
+        # dimensionless (rather than just stripping away units) so the
+        # quantities aren't so small...
+
         out[0] = v["bx2"] - v["bx1"]
 
         out[1] = (
@@ -166,6 +170,7 @@ class MhdShock:
             - v["by1"] * (v["vx1"] * v["by1"] - v["vy1"] * v["bx1"]) / mu0
         )
 
+        print(out)
         # return LHS of each equation (should be = 0 at solution)
         return out
 
