@@ -158,3 +158,68 @@ def thermal_bremsstrahlung(
     arg = (arg.to(u.dimensionless_unscaled)).value
 
     return c1 * c2 * exp1(arg)
+
+
+@particle_input
+def electron_ion_bremsstrahlung(
+    frequencies: u.Hz,
+    v_e: u.m/u.s,
+    n_i: u.m ** -3 = None,
+    ion_species: Particle = "H+",
+    Gaunt_factor: Union[str, u.Quantity] = 'classical',
+) -> np.ndarray:
+
+    if isinstance(Gaunt_factor, u.Quantity):
+
+        if Gaunt_factor.size != frequencies.size:
+            raise ValueError("Gaunt factor array must have same size as "
+                             "the array of frequencies, but the arrays given "
+                             f"had size {Gaunt_factor.size} and "
+                             f"{frequencies.size} respectively.")
+
+        if Gaunt_factor.unit != u.dimensionless_unscaled:
+            raise ValueError("Gaunt_factor must be a u.Quantity with units "
+                             "of dimensionless_unscaled: units given were "
+                             f"{Gaunt_factor.unit}.")
+
+        gff = Gaunt_factor
+
+    # REQURE: frequencies above the plasma frequency (neglect screening)
+
+    # Photon energies much less than initial electron energy
+
+    Zi = ion_species.integer_charge
+
+    eta_Z = (Zi*const.e.gauss**2/
+             (const.hbar.cgs*v_e)).to(u.dimensionless_unscaled)
+
+    print(eta_Z)
+
+    eta_nu = (const.h.cgs*frequencies/
+              (2*const.m_e.cgs*v_e**2)).to(u.dimensionless_unscaled)
+
+    print(np.max(eta_nu))
+
+    if Gaunt_factor == 'classical':
+        # Compute the classical Gaunt factor
+        gff = ((np.sqrt(3)/np.pi)*
+                         (np.log(1/(eta_Z*eta_nu)) - np.euler_gamma))
+
+    elif Gaunt_factor == 'Born':
+        gff = np.sqrt(3)/np.pi*np.log(1/eta_nu)
+
+    else:
+        # In any other case, the Gaunt_factor must be set by the user
+        # as an array of length(frequencies)
+        pass
+
+
+    # Calculate the power per frequency, sumed over all 4*pi str
+    c1 = 8*np.pi/(3*np.sqrt(3)) * Zi**2*n_i/(const.c.si**3*const.m_e.si**2*v_e)
+
+    c2 = const.e.si**2/(4*np.pi*const.eps0.si)
+
+    power = (4*np.pi*c1*c2**3).to(u.W/u.Hz)
+
+    return eta_Z, eta_J, power
+
