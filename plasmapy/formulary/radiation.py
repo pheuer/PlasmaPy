@@ -157,7 +157,7 @@ def thermal_bremsstrahlung(
     # Remove units, get ndarray of values
     arg = (arg.to(u.dimensionless_unscaled)).value
 
-    return c1 * c2 * exp1(arg)
+    return (c1 * c2 * exp1(arg)).to(u.W*u.s/u.m**3)
 
 
 @particle_input
@@ -167,7 +167,12 @@ def electron_ion_bremsstrahlung(
     n_i: u.m ** -3 = None,
     ion_species: Particle = "H+",
     Gaunt_factor: Union[str, u.Quantity] = 'classical',
+    return_etas = False,
 ) -> np.ndarray:
+
+    if v_e < 0:
+        raise ValueError("Electron velocity must be greater than zero: "
+                         f" v_e = {v_e}")
 
     if isinstance(Gaunt_factor, u.Quantity):
 
@@ -193,12 +198,15 @@ def electron_ion_bremsstrahlung(
     eta_Z = (Zi*const.e.gauss**2/
              (const.hbar.cgs*v_e)).to(u.dimensionless_unscaled)
 
-    print(eta_Z)
-
     eta_nu = (const.h.cgs*frequencies/
               (2*const.m_e.cgs*v_e**2)).to(u.dimensionless_unscaled)
 
-    print(np.max(eta_nu))
+
+    if np.max(eta_nu) > 0.1:
+        raise PhysicsError("eta_nu must be much less than one, but the "
+                           "maximum calculated value for these paramters was "
+                           f"{np.max(eta_nu)}. Try decreasing the maximum "
+                           "frequency or increasing the electron velocity.")
 
     if Gaunt_factor == 'classical':
         # Compute the classical Gaunt factor
@@ -219,7 +227,14 @@ def electron_ion_bremsstrahlung(
 
     c2 = const.e.si**2/(4*np.pi*const.eps0.si)
 
-    power = (4*np.pi*c1*c2**3).to(u.W/u.Hz)
+    power = (4*np.pi*c1*c2**3*gff).to(u.W/u.Hz)
 
-    return eta_Z, eta_J, power
+    # Convert to power/angular frequency for consistency with other
+    # bremsstrahlung function
+    power *= 1/(2*np.pi)
+
+    if return_etas:
+        return eta_Z, eta_J, power
+    else:
+        return power
 

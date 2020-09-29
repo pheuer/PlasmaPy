@@ -50,4 +50,9 @@ def test_electron_ion_bremsstrahlung():
                                                      ion_species,
                                                      Gaunt_factor='classical')
 
+# Note that it is not really possible to compare the thermal_bremsstrahlung
+# and electron_ion_bremsstrahlung functions against one another, because
+# the latter only works for fast particles, while a thermal distribution
+# inherently has many slow particles.
+
 test_electron_ion_bremsstrahlung()
