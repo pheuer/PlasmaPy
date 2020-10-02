@@ -88,8 +88,8 @@ def thermal_bremsstrahlung(
     Returns
     -------
 
-    spectrum : `~astropy.units.Quantity`
-        Computed bremsstrahlung spectrum over the frequencies provided.
+    dP/dω : `~astropy.units.Quantity`
+        The power spectral density dP/dω with units of W*rad/Hz/m^3.
 
     Notes
     -----
@@ -110,6 +110,7 @@ def thermal_bremsstrahlung(
 
     # Convert frequencies to angular frequencies
     ω = (frequencies * 2 * np.pi * u.rad).to(u.rad / u.s)
+    dω = np.gradient(ω)
 
     # Calculate the electron plasma frequency
     ω_pe = plasma_frequency(n=n_e, particle="e-")
@@ -157,7 +158,9 @@ def thermal_bremsstrahlung(
     # Remove units, get ndarray of values
     arg = (arg.to(u.dimensionless_unscaled)).value
 
-    return (c1 * c2 * exp1(arg)).to(u.W*u.s/u.m**3)
+    dPdω = (c1 * c2 * exp1(arg)).to(u.W*u.s/u.m**3)
+
+    return dPdω
 
 
 @particle_input
@@ -227,14 +230,62 @@ def electron_ion_bremsstrahlung(
 
     c2 = const.e.si**2/(4*np.pi*const.eps0.si)
 
-    power = (4*np.pi*c1*c2**3*gff).to(u.W/u.Hz)
+    dPdω = (4*np.pi*c1*c2**3*gff).to(u.W/u.Hz)
 
     # Convert to power/angular frequency for consistency with other
     # bremsstrahlung function
-    power *= 1/(2*np.pi)
+    dPdω *= 1/(2*np.pi)
 
     if return_etas:
-        return eta_Z, eta_J, power
+        return eta_Z, eta_J, dPdω
     else:
-        return power
+        return dPdω
+
+
+# Non-relativistic limit
+# Longair2011 pg. 167
+@particle_input
+def Bethe_Heitler_formula(
+    energies: u.eV,
+    v_e: u.eV,
+    n_i: u.m ** -3 = None,
+    ion_species: Particle = "H+",
+    model = 'non-rel'
+) -> np.ndarray:
+
+    Z = ion_species.integer_charge
+
+    if model == 'non-rel':
+        E = (0.5*const.m_e.si*v_e**2).to(u.eV)
+
+
+        r_e = (const.e.si**2/
+               (4*np.pi*const.eps0.si*const.m_e.si*const.c.si**2)).to(u.m)
+
+        c1 = (8/3*Z**2*const.alpha.si*const.hbar.si*r_e**2 * \
+                const.m_e.si*const.c.si**2/E*v_e*n_i).to(u.eV)
+
+        eratio = energies/E
+
+        I = c1*np.log((1 + np.sqrt(1 - energies/E))/ \
+                      (1 - np.sqrt(1 - energies/E)))
+
+    # Longair2011 pg. 166 eq. 5.38
+    elif model == 'rel':
+        gamma = 1/np.sqrt(1 - v_e**2/const.c.si**2)
+
+        #NOTE THESE ARE PRIME, eg. in the electron frame. Need to transform.
+        bmin = (const.hbar.si/(const.m_e.si*v_e)).to(u.m)
+
+        bmax =
+
+
+        c1 = (Z**2 * const.e.si**6*gamma*n_i/  \
+            (12*np.pi**3*const.eps0.si**3*const.c.si**3*const.m_e.si**2*v_e)).to(u.eV)
+        print(c1.unit)
+
+        I = c1*np.log(bmax/bmin)
+
+    return I
+
 

@@ -55,4 +55,14 @@ def test_electron_ion_bremsstrahlung():
 # the latter only works for fast particles, while a thermal distribution
 # inherently has many slow particles.
 
-test_electron_ion_bremsstrahlung()
+def test_Bethe_Heitler_formula():
+
+    energies = np.arange(10, 1000)*u.eV
+
+    v_e = 7e6*u.m/u.s
+    n_i = 1e22*u.cm**-3
+    ion_species = 'H+'
+
+    spectrum = radiation.Bethe_Heitler_formula(energies, v_e, n_i,
+                                               ion_species=ion_species)
+test_Bethe_Heitler_formula()
