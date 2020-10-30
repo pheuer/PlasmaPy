@@ -79,7 +79,8 @@ class ParticleTracker:
         particles to be tracked.
 
     dt : `astropy.units.Quantity`
-        length of timestep
+        length of timestep. If not specified, an adaptive timestep
+        will be used.
 
     end_condition : Integer or a function that takes a ParticleTracker as input
         Either an integer number of iterations or a function that takes
@@ -137,8 +138,6 @@ class ParticleTracker:
 
         # Counter for the number of interations
         self.iterations = 0
-
-
 
 
 
