@@ -7,9 +7,6 @@ import astropy.units as u
 import numpy as np
 import scipy.interpolate as interp
 
-import astropy.constants as const
-
-from plasmapy.particles import atomic
 from plasmapy.utils.decorators import validate_quantities
 
 
@@ -62,7 +59,6 @@ class ParticleSpecies:
 
 
 
-# TODO: Have the option
 
 class ParticleTracker:
     """
@@ -218,7 +214,6 @@ class ParticleTracker:
             s.x += s.v * dt
 
 
-
     # TODO: Add relativistically correct Boris push algorithm here
 
 
@@ -255,7 +250,7 @@ class ParticleTracker:
     def _record_variables(self):
         """
         Records the current particle positions and velocities in memory or
-        and HDF5 file.
+        an external file.
         """
 
 
