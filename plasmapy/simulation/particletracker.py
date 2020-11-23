@@ -67,12 +67,11 @@ class ParticleTracker:
 
     Parameters
     ----------
-    plasma : 'Plasma3D' object or list of same
-        A list of 'Plasma3D' objects, each of which contains a grid and
-        one or more quantities on the grid.
+    grid : 'Grid' object or list of same
+        A list of 'Grid' objects, each of which contains a number of quantities.
 
-        This allows different quantities (eg. E and B) to be defined on
-        different grids.
+        Allowing this to be a list allows different quantities (eg. E and B)
+        to be defined on different grids.
 
     species : 'Species' object or list of same
         A list of `Species` objects, each of which describes a number of
