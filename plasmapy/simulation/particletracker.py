@@ -1,7 +1,7 @@
 """
 Class representing a group of particles.
 """
-__all__ = ["ParticleTracker"]
+__all__ = ["ParticleSpecies", "ParticleTracker"]
 
 import astropy.units as u
 import numpy as np
@@ -141,81 +141,6 @@ class ParticleTracker:
 
 
 
-    def _field_interpolators(self):
-        """
-        Interpolates E and B fields required for any charged particle pusher
-        """
-
-        # fetch references to the E and B interpolators within the Plasma3D
-        # object(s)
-
-        return b_interpolator, e_interpolator
-
-
-
-    def boris_push(self, init=False):
-        r"""
-        Implements the Boris algorithm for moving particles and updating their
-        velocities.
-
-        Arguments
-        ----------
-        init : bool (optional)
-            If `True`, does not change the particle positions and sets dt
-            to -dt/2.
-
-        Notes
-        ----------
-        The Boris algorithm is the standard energy conserving algorithm for
-        particle movement in plasma physics. See [1]_ for more details.
-
-        Conceptually, the algorithm has three phases:
-
-        1. Add half the impulse from electric field.
-        2. Rotate the particle velocity about the direction of the magnetic
-           field.
-        3. Add the second half of the impulse from the electric field.
-
-        This ends up causing the magnetic field action to be properly
-        "centered" in time, and the algorithm conserves energy.
-
-        References
-        ----------
-        .. [1] C. K. Birdsall, A. B. Langdon, "Plasma Physics via Computer
-               Simulation", 2004, p. 58-63
-        """
-
-        b_interpolator, e_interpolator = self._field_interpolators()
-
-        # TODO: Replace this with a function that calculates an adaptive dt
-        dt = -self.dt / 2 if init else self.dt
-
-        # Apply pusher to each species
-        for s in species:
-
-            # Interpolate the E and B fields at each particle position
-            e = e_interpolator(s.x)
-            b = b_interpolator(s.x)
-
-
-            # add first half of electric impulse
-            vminus = s.v + s.q / s.m * dt * 0.5
-
-            # rotate to add magnetic field
-            t = -b * s.q / s.m * dt * 0.5
-            u = 2 * t / (1 + (t * t).sum(axis=1, keepdims=True))
-            vprime = vminus + np.cross(vminus.si.value, t)
-            vplus = vminus + np.cross(vprime.si.value, u)
-
-            # add second half of electric impulse
-            v_new = vplus + s.q * e / s.m * dt * 0.5
-
-            s.x += s.v * dt
-
-
-    # TODO: Add relativistically correct Boris push algorithm here
-
-
     def run(self):
         r"""
         Runs a simulation instance.
@@ -223,7 +148,8 @@ class ParticleTracker:
 
         while not _end(self):
             # Push particles
-            self.boris_push()
+            # TODO: add options for different pushers
+            self._push()
 
             # Record variables when required
             if len(self.recorded_variables) != 0:
@@ -251,78 +177,3 @@ class ParticleTracker:
         Records the current particle positions and velocities in memory or
         an external file.
         """
-
-
-
-
-
-
-
-# ****************************************************************************
-# Functions that accept a ParticleTracker and make basic plots
-# ****************************************************************************
-
-
-
-def plot_trajectories(particle_tracker):  # coverage: ignore
-    r"""Draws trajectory history."""
-    import matplotlib.pyplot as plt
-
-    from astropy.visualization import quantity_support
-    from mpl_toolkits.mplot3d import Axes3D
-
-    quantity_support()
-    fig = plt.figure()
-    ax = fig.add_subplot(111, projection="3d")
-    for p_index in range(self.N):
-        r = self.position_history[:, p_index]
-        x, y, z = r.T
-        ax.plot(x, y, z)
-    ax.set_title(self.name)
-    ax.set_xlabel("$x$ position")
-    ax.set_ylabel("$y$ position")
-    ax.set_zlabel("$z$ position")
-    plt.show()
-
-def plot_time_trajectories(particle_tracker, plot="xyz"):  # coverage: ignore
-    r"""
-    Draws position history versus time.
-
-    Parameters
-    ----------
-    plot : str (optional)
-        Enable plotting of position component x, y, z for each of these
-        letters included in `plot`.
-    """
-    import matplotlib.pyplot as plt
-
-    from astropy.visualization import quantity_support
-    from mpl_toolkits.mplot3d import Axes3D
-
-    quantity_support()
-    fig, ax = plt.subplots()
-    for p_index in range(self.N):
-        r = self.position_history[:, p_index]
-        x, y, z = r.T
-        if "x" in plot:
-            ax.plot(self.t, x, label=f"x_{p_index}")
-        if "y" in plot:
-            ax.plot(self.t, y, label=f"y_{p_index}")
-        if "z" in plot:
-            ax.plot(self.t, z, label=f"z_{p_index}")
-    ax.set_title(self.name)
-    ax.legend(loc="best")
-    ax.grid()
-    plt.show()
-
-
-def kinetic_energy_history(particle_tracker):
-    r"""
-    Calculates the kinetic energy history for each particle.
-
-    Returns
-    --------
-    ~astropy.units.Quantity
-        Array of kinetic energies, shape (nt, n).
-    """
-    return (self.velocity_history ** 2).sum(axis=-1) * self.eff_m / 2
