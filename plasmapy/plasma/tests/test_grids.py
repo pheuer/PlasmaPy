@@ -37,6 +37,8 @@ def test_AbstractGrid():
 
     pts0, pts1, pts2 = grid.pts0, grid.pts1, grid.pts2
 
+    gr = grid.grid_resolution
+
     # Test wrong number of positional arguments: 1 or more than 3
     with pytest.raises(TypeError):
         grid = grids.AbstractGrid(1 * u.cm, num=10)
@@ -85,6 +87,11 @@ def test_AbstractGrid():
     grid.add_quantities(B_x=q, B_y=q, B_z=q)
 
     print(grid)
+
+    # Test on_grid
+    pos = np.array([[2, -3, 0], [0.1, -0.3, 0]]) * u.cm
+    b  = grid.on_grid(pos)
+    assert all(b == [False, True])
 
 
 def test_CartesianGrid():
@@ -226,7 +233,7 @@ def test_NonUniformCartesianGrid():
 
 
 if __name__ == "__main__":
-    # test_AbstractGrid()
+    test_AbstractGrid()
     # test_CartesianGrid()
     # test_interpolate_indices()
     # test_nearest_neighbor_interpolator()

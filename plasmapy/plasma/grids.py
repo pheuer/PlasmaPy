@@ -379,18 +379,9 @@ class AbstractGrid(ABC):
             )
 
     @property
-    def grid_resolution(self, positions=None):
+    def grid_resolution(self):
         r"""
-        Estimates scalar grid resolution either for the entire grid
-        (for uniform grids) or at a a list of provided positions
-        (for non-uniform grids).
-
-        Parameters
-        ----------
-        pos : np.ndarray or u.Quantity array, shape (n,3)
-            An array of positions in space, where the second dimension
-            corresponds to the three dimensions of the grid. If provided,
-            local grid resolution will be estimated at each position
+        Estimates scalar grid resolution
 
         Raises
         ------
@@ -403,13 +394,39 @@ class AbstractGrid(ABC):
             Characteristic grid resolution length scale
         """
         if self.is_uniform_grid:
-            return np.min(np.array([self.dax0, self.dax1, self.dax2]))
+            return min([self.dax0, self.dax1, self.dax2])
         else:
             raise NotImplementedError("Grid resolution for non-uniform grids"
                                  " not yet implemented.")
 
         # TODO: Implement a routine to estimate grid resolution at an array
-        # of positions (for non-uniform grids) using the position keyword.
+        # of positions (for non-uniform grids) passed in as a keyword. How
+        # to do this for unstructured data??
+
+
+    def on_grid(self, pos):
+        r"""
+        Checks whether an array of positions are within the region
+        covered by the grid. Returns an array of booleans corresponding to
+        the number of positions.
+
+        Parameters
+        ----------
+        pos : np.ndarray or u.Quantity array, shape (n,3)
+            An array of positions in space, where the second dimension
+            corresponds to the three dimensions of the grid. If an np.ndarray
+            is provided, units will be assumed to match those of the grid.
+
+        Returns
+        -------
+        Bool or list of same
+            Boolean values reflecting whether the positions are or are not
+            on the grid
+
+        """
+        i = self.interpolate_indices(pos)
+        return np.any(np.invert(np.isnan(i)), axis=1)
+
 
 
     # *************************************************************************
@@ -988,3 +1005,91 @@ class NonUniformCartesianGrid(CartesianGrid):
         arr0, arr1, arr2 = np.meshgrid(ax0, ax1, ax2, indexing="ij")
 
         return arr0, arr1, arr2
+
+
+
+class GridCollection:
+    r"""
+    A list of grid objects
+
+    All grid objects in the collection must be uniformly spaced (for now).
+    """
+
+    # TODO: Generalize collections to include non-uniform grids too
+
+    def __init__(self, *args):
+        r"""
+        Initializes the GridCollection given a series of grid objects as arguments
+        """
+
+        self.grid_list = []
+        self.grid_resolutions = []
+
+        for a in args:
+            #TODO: validate that grid is uniform
+            self.grid_list.append(a)
+            self.grid_resolution.append(a.grid_resolution)
+
+
+
+    def interpolate_per_grid(self, pos, interpolate_fcn, *quantities):
+        r"""
+        1) For each (quantity, position) -> determine which grids it is even on
+
+        2) For each position, determine which of the remaining grids has the highest
+           resolution
+        3) Call the interpolator function for that position on that grid.
+
+        Vectorize this so only one call is made to each grid's intrpolator.
+
+        4) Return output identical to if you had interpolated on a single grid
+
+
+
+        Parameters
+        ----------
+        pos : np.array [N,3]
+            DESCRIPTION.
+        interpolate_fcn : TYPE
+            DESCRIPTION.
+
+        Returns
+        -------
+        None.
+
+        """
+
+
+        # TODO: BUT HOW to make sure each quantity is on each grid???
+        # Does this have to be a for-loop by quantity??
+        npos,_ = pos.shape
+        ngrids = len(self.grid_list)
+        nquant = len(quantities)
+
+        decision = np.zeros([npos, nquant,  ngrids])
+
+        # Determine which positions are on which grids
+        for i, grid in enumerate(self.grid_list):
+             decision[:,:,i] = grid.on_grid(pos)
+
+             # Check which quantities are on which grids
+             for j, q in enumerate(quantities):
+                 if q not in grid.keys():
+                    decision[:,j,i] = False
+
+             # Replace False values with np.inf and True values with grid
+             # resolution
+
+
+        # Now, loop through grids again, interpolating the quantities and
+        # positions?
+
+        # PROBLEM: what if quantities are valid at some positions and not others? This is a mess...
+
+
+        # Simpler version: what if grids in collections cannot share quantities? Does that lose important functionality?
+
+
+
+
+
