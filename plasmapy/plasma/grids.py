@@ -378,6 +378,40 @@ class AbstractGrid(ABC):
                 "uniformly spaced grids."
             )
 
+    @property
+    def grid_resolution(self, positions=None):
+        r"""
+        Estimates scalar grid resolution either for the entire grid
+        (for uniform grids) or at a a list of provided positions
+        (for non-uniform grids).
+
+        Parameters
+        ----------
+        pos : np.ndarray or u.Quantity array, shape (n,3)
+            An array of positions in space, where the second dimension
+            corresponds to the three dimensions of the grid. If provided,
+            local grid resolution will be estimated at each position
+
+        Raises
+        ------
+        NotImplementedError
+            If grid is non-uniform (not supported yet)
+
+        Returns
+        -------
+        `u.Quantity`
+            Characteristic grid resolution length scale
+        """
+        if self.is_uniform_grid:
+            return np.min(np.array([self.dax0, self.dax1, self.dax2]))
+        else:
+            raise NotImplementedError("Grid resolution for non-uniform grids"
+                                 " not yet implemented.")
+
+        # TODO: Implement a routine to estimate grid resolution at an array
+        # of positions (for non-uniform grids) using the position keyword.
+
+
     # *************************************************************************
     # Loading and creating grids
     # *************************************************************************
