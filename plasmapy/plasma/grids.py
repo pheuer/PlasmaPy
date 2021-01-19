@@ -1034,15 +1034,24 @@ class GridCollection:
 
     def interpolate_per_grid(self, pos, interpolate_fcn, *quantities):
         r"""
-        1) For each (quantity, position) -> determine which grids it is even on
+        1) Create an matrix of good-ness metrics of shape (npos, ngrid, nquantities).
+            Also create a list of output arrays for each quantity, init to nan.
 
-        2) For each position, determine which of the remaining grids has the highest
-           resolution
-        3) Call the interpolator function for that position on that grid.
+            1a) Initially fill with the 1/resolution of each grid (bigger is better, so 0 is bad to allow easy masking)
 
-        Vectorize this so only one call is made to each grid's intrpolator.
+            2a) If position is not on_grid, set metric to 0
 
-        4) Return output identical to if you had interpolated on a single grid
+            3a) If quantity is not available on that grid, set metric to np.inf
+
+        2) Loop through the grids
+
+            2a) Loop through the quantities
+
+                2i) For each quantity, find the positions for which that grid/quantity pair is
+                    optimal. Interpolate those, then store the result in an output matrix.
+
+        3) Check to make sure no NaNs are left in the output array
+
 
 
 
@@ -1066,23 +1075,34 @@ class GridCollection:
         ngrids = len(self.grid_list)
         nquant = len(quantities)
 
+        output = [np.zeros(npos)] * nquant
+
         decision = np.zeros([npos, nquant,  ngrids])
 
         # Determine which positions are on which grids
         for i, grid in enumerate(self.grid_list):
-             decision[:,:,i] = grid.on_grid(pos)
+
+             # Set matrix values to 0 if off_grid, or otherwise to the 1/grid resolution
+             # (so, bigger is better for the quality metric)
+             decision[:,:,i] = grid.on_grid(pos)*1/grid.grid_resolution.value
 
              # Check which quantities are on which grids
              for j, q in enumerate(quantities):
-                 if q not in grid.keys():
-                    decision[:,j,i] = False
+                 if q not in list(grid.ds.data_vars):
+                    decision[:,j,i] = 0
 
-             # Replace False values with np.inf and True values with grid
-             # resolution
 
+        # TODO: check that there are no entirely zero positions (ie a quantity that's entirely not included)
 
         # Now, loop through grids again, interpolating the quantities and
-        # positions?
+        # positions
+
+        for i, grid in enumerate(self.grid_list):
+            for j, q in enumerate(quantities):
+
+                pos_i =
+
+
 
         # PROBLEM: what if quantities are valid at some positions and not others? This is a mess...
 
