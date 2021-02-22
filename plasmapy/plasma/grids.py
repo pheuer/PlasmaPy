@@ -157,7 +157,6 @@ class AbstractGrid(ABC):
 
                     if rq in self.recognized_quantities.keys():
                         unit = self.recognized_quantities[rq].unit
-                        print("here")
                     else:
                         raise KeyError(
                             f"{rq} is not a recognized key, and "
