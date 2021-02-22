@@ -68,6 +68,25 @@ def test_AbstractGrid():
     Bx = grid.ds["B_x"]
     Bx = grid["B_x"]
 
+    # Test require_quantities
+    # Test with a key that is there
+    req_q = ["B_x"]
+    grid.require_quantities(req_q, replace_with_zeros=False)
+
+    req_q = ["B_x", "B_y"]
+    # Test with a key that is not there, but can be replaced
+    # Do not replace
+    with pytest.raises(KeyError):
+        grid.require_quantities(req_q, replace_with_zeros=False)
+    # Do replace
+    grid.require_quantities(req_q, replace_with_zeros=True)
+    req_q = ["B_x", "B_y"]
+    # Test with a key that is not there, but cannot be replaced because
+    # it's not a recognized key
+    req_q = ["B_x", "not_a_recognized_key"]
+    with pytest.raises(KeyError):
+        grid.require_quantities(req_q, replace_with_zeros=True)
+
     # Test adding a quantity with wrong units
     q = np.random.randn(10, 10, 10) * u.kg
     with pytest.raises(ValueError):
@@ -317,10 +336,10 @@ def test_NonUniformCartesianGrid():
 
 if __name__ == "__main__":
     # test_AbstractGrid()
-    test_CartesianGrid()
+    # test_CartesianGrid()
     # test_grid_methods()
     # test_interpolate_indices()
     # test_nearest_neighbor_interpolator()
     # test_volume_averaged_interpolator()
-    test_NonUniformCartesianGrid()
+    # test_NonUniformCartesianGrid()
     pass
