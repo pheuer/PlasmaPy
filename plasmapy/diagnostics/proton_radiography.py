@@ -246,7 +246,8 @@ class SyntheticProtonRadiograph:
                 warnings.warn(
                     "Fields should go to zero at edges of grid to avoid "
                     f"non-physical effects, but a value of {edge_max:.2E} {unit} was "
-                    f"found on the edge of the {rq} array. Consider applying a "
+                    f"found on the edge of the {rq} array. Consider using a "
+                    "larger grid (with lower fields at the edges), or applying an "
                     "envelope function to force the fields at the edge to go to "
                     "zero.",
                     RuntimeWarning,
