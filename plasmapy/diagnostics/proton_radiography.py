@@ -126,6 +126,7 @@ class SyntheticProtonRadiograph:
         detector: u.m,
         detector_hdir=None,
         verbose=True,
+        blocking_grid=None,
     ):
 
         # self.grid is the grid object
@@ -133,6 +134,9 @@ class SyntheticProtonRadiograph:
         # self.grid_arr is the grid positions in si units. This is created here
         # so that it isn't continously called later
         self.grid_arr = grid.grid.to(u.m).value
+        
+        # A second grid of boolean values that will block particles
+        self.blocking_grid = blocking_grid
 
         self.verbose = verbose
 
@@ -172,7 +176,7 @@ class SyntheticProtonRadiograph:
         # Determine the angle above which particles will not hit the grid
         # these particles can be ignored until the end of the simulation,
         # then immediately advanced to the detector grid with their original
-        # velocities
+        # velocitie
         self.max_theta_hit_grid = self._max_theta_hit_grid()
 
         # ************************************************************************
@@ -249,6 +253,7 @@ class SyntheticProtonRadiograph:
             nx = np.cross(np.array([0, 0, 1]), self.det_n)
         nx = nx / np.linalg.norm(nx)
         return nx
+    
 
     def _max_theta_hit_grid(self):
         r"""
@@ -272,7 +277,32 @@ class SyntheticProtonRadiograph:
                         / np.linalg.norm(self.src_det)
                     )
                     ind += 1
-        return np.max(theta)
+        theta1 = np.max(theta)
+        
+        if self.blocking_grid is not None:
+            ind = 0
+            theta = np.zeros([8])
+            for x in [0, -1]:
+                for y in [0, -1]:
+                    for z in [0, -1]:
+                        # Source to grid corner vector
+                        vec = self.blocking_grid.grid[x, y, z, :].to(u.m).value - self.source
+    
+                        # Calculate angle between vec and the source-to-detector
+                        # axis, which is the central axis of the particle beam
+                        theta[ind] = np.arccos(
+                            np.dot(vec, self.src_det)
+                            / np.linalg.norm(vec)
+                            / np.linalg.norm(self.src_det)
+                        )
+                        ind += 1
+            theta2 = np.max(theta)
+        else:
+            theta2 = 0
+                    
+        print([theta1, theta2])
+            
+        return np.max([theta1, theta2])
 
     def _log(self, msg):
         if self.verbose:
@@ -485,6 +515,8 @@ class SyntheticProtonRadiograph:
             keep_these_particles
         ]  # Important to apply here to get correct grid_ind
         self.nparticles = number_kept_particles
+        
+    
 
     # *************************************************************************
     # Particle creation methods
@@ -783,7 +815,7 @@ class SyntheticProtonRadiograph:
         """
 
         normal = np.cross(hdir, vdir)
-
+        
         # Calculate the time required to evolve each particle into the
         # plane
         t = np.inner(center[np.newaxis, :] - self.x, normal) / np.inner(self.v, normal)
@@ -801,6 +833,14 @@ class SyntheticProtonRadiograph:
         assert np.allclose(plane_eq, 0, atol=1e-6)
 
         return x
+    
+    def _remove_stopped_particles(self):
+         # Indices of zero velocities
+        vz = np.where(np.linalg.norm(self.v, axis=-1) >  0)[0]
+        print(f"Removing stopped particles: {self.nparticles - vz.size}")
+        self.x = self.x[vz,:]
+        self.v = self.v[vz,:]
+        
 
     def _remove_deflected_particles(self):
         r"""
@@ -866,6 +906,7 @@ class SyntheticProtonRadiograph:
                 "B_z",
                 persistent=True,
             )
+            
         elif self.field_weighting == "nearest neighbor":
             Ex, Ey, Ez, Bx, By, Bz = self.grid.nearest_neighbor_interpolator(
                 pos,
@@ -877,6 +918,18 @@ class SyntheticProtonRadiograph:
                 "B_z",
                 persistent=True,
             )
+            
+        
+        if self.blocking_grid is not None:
+            block = self.blocking_grid.nearest_neighbor_interpolator(
+                pos, 
+                'rho',
+                persistent=True,
+                )       
+            block = block.value > 0
+            
+        else:
+            block = [0]*pos.shape[0]
 
         # Create arrays of E and B as required by push algorithm
         E = np.array(
@@ -897,6 +950,11 @@ class SyntheticProtonRadiograph:
         x = self.x[self.grid_ind, :]
         v = self.v[self.grid_ind, :]
         boris_push(x, v, B, E, self.q, self.m, dt)
+        
+        ind = np.where(block)[0]
+        print(f"Num blocked: {ind.size}/{self.grid_ind.size}")
+        v[ind,:] *= 0
+        
         self.x[self.grid_ind, :] = x
         self.v[self.grid_ind, :] = v
 
@@ -1056,6 +1114,9 @@ class SyntheticProtonRadiograph:
 
             self._push()
         pbar.close()
+        
+        # Remove stopped particles
+        self._remove_stopped_particles()
 
         # Remove particles that will never reach the detector
         self._remove_deflected_particles()
