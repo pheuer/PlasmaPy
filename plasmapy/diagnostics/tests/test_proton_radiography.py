@@ -9,6 +9,7 @@ import pytest
 import warnings
 
 from scipy.special import erf
+from scipy.stats import norm
 
 from plasmapy.diagnostics import proton_radiography as prad
 from plasmapy.plasma.grids import CartesianGrid
@@ -372,6 +373,38 @@ def test_create_particles():
     sim.create_particles(1e3, 15 * u.MeV, particle="e")
 
 
+def test_create_particles_gaussian_energy_distribution():
+    grid = _test_grid("electrostatic_gaussian_sphere", num=50)
+
+    # Cartesian
+    source = (0 * u.mm, -10 * u.mm, 0 * u.mm)
+    detector = (0 * u.mm, 200 * u.mm, 0 * u.mm)
+
+    sim = prad.SyntheticProtonRadiograph(grid, source, detector, verbose=False)
+
+    # Test Gaussian energy distribution
+
+    # Raises error if the sigma keyword is not provided
+    with pytest.raises(ValueError):
+        sim.create_particles(
+            1e3, 15 * u.MeV, max_theta=0.1 * u.rad, energy_distribution="gaussian"
+        )
+
+    # Check that speeds are Gaussian
+    sim.create_particles(
+        1e3,
+        15 * u.MeV,
+        max_theta=0.1 * u.rad,
+        energy_distribution="gaussian",
+        particle_energy_sigma=3 * u.MeV,
+    )
+
+    speeds = np.linalg.norm(sim.v, axis=1)
+
+    # TODO: Fit speed distribution with Gaussian and compare to expected
+    # velocity
+
+
 def test_load_particles():
 
     grid = _test_grid("electrostatic_gaussian_sphere", num=50)
@@ -699,4 +732,5 @@ if __name__ == "__main__":
     test_add_wire_mesh()
     test_gaussian_sphere_analytical_comparison()
     """
+    test_create_particles_gaussian_energy_distribution()
     pass

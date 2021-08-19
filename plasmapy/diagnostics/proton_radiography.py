@@ -682,7 +682,7 @@ class SyntheticProtonRadiograph:
         self.m = particle.mass.to(u.kg).value
 
         if particle_energy_sigma is not None:
-            particle_energy_sigma = particle_energy.sigma.to(u.eV).value
+            particle_energy_sigma = particle_energy_sigma.to(u.eV).value
 
         # If max_theta is not specified, make a guess based on the grid size
         if max_theta is None:
@@ -706,7 +706,7 @@ class SyntheticProtonRadiograph:
         if energy_distribution == "uniform":
             v0 = self._speed_uniform(self.particle_energy)
         elif energy_distribution == "gaussian":
-            v0 = self._speed_gaussian(self.particle_energy, self.particle_energy_sigma)
+            v0 = self._speed_gaussian(self.particle_energy, particle_energy_sigma)
 
         # Construct the velocity distribution around the z-axis
         self.v = np.zeros([self.nparticles, 3])
