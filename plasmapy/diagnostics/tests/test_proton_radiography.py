@@ -359,10 +359,12 @@ def test_create_particles():
     sim = prad.SyntheticProtonRadiograph(grid, source, detector, verbose=False)
 
     sim.create_particles(
-        1e3, 15 * u.MeV, max_theta=0.1 * u.rad, distribution="monte-carlo"
+        1e3, 15 * u.MeV, max_theta=0.1 * u.rad, angle_distribution="monte-carlo"
     )
 
-    sim.create_particles(1e3, 15 * u.MeV, max_theta=0.1 * u.rad, distribution="uniform")
+    sim.create_particles(
+        1e3, 15 * u.MeV, max_theta=0.1 * u.rad, angle_distribution="uniform"
+    )
 
     # Test specifying particle
     charge = 3 * const.e.si
@@ -379,7 +381,9 @@ def test_load_particles():
     detector = (0 * u.mm, 200 * u.mm, 0 * u.mm)
 
     sim = prad.SyntheticProtonRadiograph(grid, source, detector, verbose=False)
-    sim.create_particles(1e3, 15 * u.MeV, max_theta=0.1 * u.rad, distribution="uniform")
+    sim.create_particles(
+        1e3, 15 * u.MeV, max_theta=0.1 * u.rad, angle_distribution="uniform"
+    )
 
     # Test adding unequal numbers of particles
     x = np.zeros([100, 3]) * u.m

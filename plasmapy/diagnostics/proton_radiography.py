@@ -537,14 +537,74 @@ class SyntheticProtonRadiograph:
 
         return theta.flatten(), phi.flatten()
 
+    def _speed_uniform(self, particle_energy):
+        """
+        Generates a distribution of identical speeds for a given energy.
+
+        Parameters
+        ----------
+        particle_energy : `~astropy.units.Quantity`
+            Energy of the particle
+
+        Returns
+        -------
+        speeds : `~astropy.units.Quantity`, shape [nparticles,]
+            An array of speeds for each particle
+
+        """
+        energies = particle_energy * np.ones(self.nparticles)
+
+        ER = energies * 1.6e-19 / (self.m * self._c ** 2)
+        speeds = self._c * np.sqrt(1 - 1 / (ER + 1) ** 2)
+
+        return speeds
+
+    def _speed_gaussian(self, center_energy, sigma_energy):
+        """
+        Generates speeds with a Gaussian distribution specified by a center
+        and with a standard deviation sigma.
+
+        Parameters
+        ----------
+        center_energy : `~astropy.units.Quantity`
+            Peak of the Gaussian speed distribution. Units convertable
+            to m/s.
+
+        sigma_energy : `~astropy.units.Quantity`
+            The standard deviation of the Gaussian speed distribution. Units
+            convertable to m/s.
+
+        Returns
+        -------
+        v0 : `~astropy.units.Quantity`, shape [nparticles,]
+            An array of speeds for each particle
+
+        """
+        if sigma_energy is None:
+            raise ValueError(
+                "The `sigma_energy` keyword must be set in order to "
+                "use a Gaussian energy distribution."
+            )
+
+        energies = np.random.normal(
+            loc=center_energy, scale=sigma_energy, size=self.nparticles
+        )
+
+        ER = energies * 1.6e-19 / (self.m * self._c ** 2)
+        speeds = self._c * np.sqrt(1 - 1 / (ER + 1) ** 2)
+
+        return speeds
+
     @particles.particle_input
     def create_particles(
         self,
         nparticles,
         particle_energy,
         max_theta=None,
+        particle_energy_sigma=None,
         particle: Particle = Particle("p+"),
-        distribution="monte-carlo",
+        angle_distribution="monte-carlo",
+        energy_distribution="uniform",
     ):
         r"""
         Generates the angular distributions about the Z-axis, then
@@ -572,18 +632,22 @@ class SyntheticProtonRadiograph:
             guess will be made based on the size of the grid.
             Units must be convertible to radians.
 
+        particle_energy_sigma : `~astropy.units.Quantity`, optional
+            The standard deviation of the particle energy distribution if
+            the 'gaussian' energy distribution is used.
+
         particle : ~plasmapy.particles.Particle or string representation of same, optional
             Representation of the particle species as either a `Particle` object
             or a string representation. The default particle is protons.
 
-        distribution: str
+        angle_distribution: str, optional
             A keyword which determines how particles will be distributed
-            in velocity space. Options are:
+            in angle. Options are:
 
                 - 'monte-carlo': velocities will be chosen randomly,
                     such that the flux per solid angle is uniform.
 
-                - 'uniform': velocities will be distrbuted such that,
+                - 'uniform': angles will be distrbuted such that,
                    left unperturbed,they will form a uniform pattern
                    on the detection plane. This method
                    requires that `nparticles` be a perfect square. If it is not,
@@ -595,6 +659,19 @@ class SyntheticProtonRadiograph:
             smaller number of particles. The default is `monte-carlo`
 
 
+        energy_distribution: str, optional
+            A keyword which determines the energy distribution of the particles.
+            Options are:
+                - 'uniform': Every particle has the same energy, set by
+                   the particle_energy argument.
+
+                - 'gaussian': The particle energies are drawn from a
+                   Gaussian distribution centered on the particle_energy with
+                   a standard deviation set by the energy_sigma keyword.
+
+
+
+
         """
         self._log("Creating Particles")
 
@@ -603,6 +680,9 @@ class SyntheticProtonRadiograph:
         self.particle_energy = particle_energy.to(u.eV).value
         self.q = particle.charge.to(u.C).value
         self.m = particle.mass.to(u.kg).value
+
+        if particle_energy_sigma is not None:
+            particle_energy_sigma = particle_energy.sigma.to(u.eV).value
 
         # If max_theta is not specified, make a guess based on the grid size
         if max_theta is None:
@@ -613,17 +693,20 @@ class SyntheticProtonRadiograph:
             self.max_theta = max_theta.to(u.rad).value
 
         # Calculate the velocity corresponding to the particle energy
-        ER = self.particle_energy * 1.6e-19 / (self.m * self._c ** 2)
-        v0 = self._c * np.sqrt(1 - 1 / (ER + 1) ** 2)
 
-        if distribution == "monte-carlo":
+        if angle_distribution == "monte-carlo":
             theta, phi = self._angles_monte_carlo()
-        elif distribution == "uniform":
+        elif angle_distribution == "uniform":
             theta, phi = self._angles_uniform()
 
         # Temporarily save theta to later determine which particles
         # should be tracked
         self.theta = theta
+
+        if energy_distribution == "uniform":
+            v0 = self._speed_uniform(self.particle_energy)
+        elif energy_distribution == "gaussian":
+            v0 = self._speed_gaussian(self.particle_energy, self.particle_energy_sigma)
 
         # Construct the velocity distribution around the z-axis
         self.v = np.zeros([self.nparticles, 3])
