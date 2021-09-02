@@ -1154,6 +1154,117 @@ class AbstractGrid(ABC):
         )
 
 
+from numba import jit
+
+
+@jit(nopython=True)
+def _compiled_cartesian_volume_avg_interpolator(
+    nparticles, pos, ax0, ax1, ax2, dx, dy, dz, n0, n1, n2, interp_quantities
+):
+
+    # find cell nearest to each position
+    nearest_neighbor_index = np.zeros((nparticles, 3), dtype=np.int32)
+    nearest_neighbor_index[..., 0] = np.abs(pos[:, 0, None] - ax0).argmin(axis=1)
+    nearest_neighbor_index[..., 1] = np.abs(pos[:, 1, None] - ax1).argmin(axis=1)
+    nearest_neighbor_index[..., 2] = np.abs(pos[:, 2, None] - ax2).argmin(axis=1)
+
+    # Create a mask for positions that are off the grid. The values at
+    # these points will be set to zero later.
+    mask_particle_off = (
+        (pos[:, 0] < ax0.min())
+        | (pos[:, 0] > ax0.max())
+        | (pos[:, 1] < ax1.min())
+        | (pos[:, 1] > ax1.max())
+        | (pos[:, 2] < ax2.min())
+        | (pos[:, 2] > ax2.max())
+    )
+
+    # Get the physical positions for the nearest neighbor cell
+    # for the each particle
+    xpos = ax0[nearest_neighbor_index[:, 0]]
+    ypos = ax1[nearest_neighbor_index[:, 1]]
+    zpos = ax2[nearest_neighbor_index[:, 2]]
+    nearest_neighbor_pos = np.array([xpos, ypos, zpos]).swapaxes(0, 1)
+
+    # Determine the indices for the grid cells bounding the particle
+    # - The imaginary cell centered on the particle will overlap with
+    #   1 to 8 surrounding cells
+    # - typically this is 8 but will be 4, 2, or 1 when the particle is
+    #   near the boundary of the grid
+    bounding_cell_indices = np.empty((nparticles, 8, 3), dtype=np.int32)
+    lower_indices = np.where(
+        pos >= nearest_neighbor_pos,
+        nearest_neighbor_index,
+        nearest_neighbor_index - 1,
+    )
+
+    # populate x indices
+    bounding_cell_indices[:, 0:4, 0] = np.tile(lower_indices[:, 0], (4, 1)).swapaxes(
+        0, 1
+    )
+    bounding_cell_indices[:, 4:, 0] = bounding_cell_indices[:, 0:4, 0] + 1
+
+    # populate y indices
+    bounding_cell_indices[:, [0, 1, 4, 5], 1] = np.tile(
+        lower_indices[:, 1], (4, 1)
+    ).swapaxes(0, 1)
+    bounding_cell_indices[:, [2, 3, 6, 7], 1] = (
+        bounding_cell_indices[:, [0, 1, 4, 5], 1] + 1
+    )
+
+    # populate z indices
+    bounding_cell_indices[:, 0::2, 2] = np.tile(lower_indices[:, 2], (4, 1)).swapaxes(
+        0, 1
+    )
+    bounding_cell_indices[:, 1::2, 2] = bounding_cell_indices[:, 0::2, 2] + 1
+
+    # Create a mask for cells whose locations would be off the grid,
+    # which occurs when the interpolation point is near the edge of the
+    # grid. These values will be weighted as zero later.
+    mask_cell_off = (
+        (bounding_cell_indices < 0).any(axis=2)
+        | (bounding_cell_indices[:, :, 0] >= n0)
+        | (bounding_cell_indices[:, :, 1] >= n1)
+        | (bounding_cell_indices[:, :, 2] >= n2)
+    )
+
+    # Zero any out of bounds indices so IndexError is not raised
+    # during indexing.  This means an incorrect value will be retrieved
+    # but will not be used because of the zero weighting and the
+    # off the grid mask
+    bounding_cell_indices[mask_cell_off, :] = 0
+
+    # Calculate the volume of the overlap between the point volume
+    # and the volume of each of the surrounding vertices
+    lx = dx - np.abs(pos[:, None, 0] - ax0[bounding_cell_indices[..., 0]])
+    ly = dy - np.abs(pos[:, None, 1] - ax1[bounding_cell_indices[..., 1]])
+    lz = dz - np.abs(pos[:, None, 2] - ax2[bounding_cell_indices[..., 2]])
+    bounding_cell_weights = lx * ly * lz
+
+    # Set the weight for any off-grid vertices (cell or particle) to zero
+    bounding_cell_weights[mask_cell_off] = 0.0
+    bounding_cell_weights[mask_particle_off, ...] = 0.0
+    norms = np.sum(bounding_cell_weights, axis=1)
+    mask_norm_zero = norms == 0.0
+    bounding_cell_weights[~mask_norm_zero] = (
+        bounding_cell_weights[~mask_norm_zero, ...] / norms[~mask_norm_zero, None]
+    )
+
+    # Get the values of each of the interpolated quantities at each
+    # of the bounding vertices
+    vals = interp_quantities[
+        bounding_cell_indices[..., 0],
+        bounding_cell_indices[..., 1],
+        bounding_cell_indices[..., 2],
+        :,
+    ]
+    # Construct a weighted average of the interpolated quantities
+    weighted_ave = np.sum(bounding_cell_weights[..., None] * vals, axis=1)
+    weighted_ave[mask_particle_off, :] = np.nan
+
+    return weighted_ave
+
+
 class CartesianGrid(AbstractGrid):
     r"""A uniformly spaced Cartesian grid."""
 
@@ -1241,105 +1352,20 @@ class CartesianGrid(AbstractGrid):
         dx, dy, dz = self._dax0_si, self._dax1_si, self._dax2_si
         n0, n1, n2 = self.shape
 
-        # find cell nearest to each position
-        nearest_neighbor_index = np.zeros((nparticles, 3), dtype=np.int32)
-        nearest_neighbor_index[..., 0] = np.abs(pos[:, 0, None] - ax0).argmin(axis=1)
-        nearest_neighbor_index[..., 1] = np.abs(pos[:, 1, None] - ax1).argmin(axis=1)
-        nearest_neighbor_index[..., 2] = np.abs(pos[:, 2, None] - ax2).argmin(axis=1)
-
-        # Create a mask for positions that are off the grid. The values at
-        # these points will be set to zero later.
-        mask_particle_off = (
-            (pos[:, 0] < ax0.min())
-            | (pos[:, 0] > ax0.max())
-            | (pos[:, 1] < ax1.min())
-            | (pos[:, 1] > ax1.max())
-            | (pos[:, 2] < ax2.min())
-            | (pos[:, 2] > ax2.max())
+        weighted_ave = _compiled_cartesian_volume_avg_interpolator(
+            nparticles,
+            pos,
+            ax0,
+            ax1,
+            ax2,
+            dx,
+            dy,
+            dz,
+            n0,
+            n1,
+            n2,
+            self._interp_quantities,
         )
-
-        # Get the physical positions for the nearest neighbor cell
-        # for the each particle
-        xpos = ax0[nearest_neighbor_index[:, 0]]
-        ypos = ax1[nearest_neighbor_index[:, 1]]
-        zpos = ax2[nearest_neighbor_index[:, 2]]
-        nearest_neighbor_pos = np.array([xpos, ypos, zpos]).swapaxes(0, 1)
-
-        # Determine the indices for the grid cells bounding the particle
-        # - The imaginary cell centered on the particle will overlap with
-        #   1 to 8 surrounding cells
-        # - typically this is 8 but will be 4, 2, or 1 when the particle is
-        #   near the boundary of the grid
-        bounding_cell_indices = np.empty((nparticles, 8, 3), dtype=np.int32)
-        lower_indices = np.where(
-            pos >= nearest_neighbor_pos,
-            nearest_neighbor_index,
-            nearest_neighbor_index - 1,
-        )
-
-        # populate x indices
-        bounding_cell_indices[:, 0:4, 0] = np.tile(
-            lower_indices[:, 0], (4, 1)
-        ).swapaxes(0, 1)
-        bounding_cell_indices[:, 4:, 0] = bounding_cell_indices[:, 0:4, 0] + 1
-
-        # populate y indices
-        bounding_cell_indices[:, [0, 1, 4, 5], 1] = np.tile(
-            lower_indices[:, 1], (4, 1)
-        ).swapaxes(0, 1)
-        bounding_cell_indices[:, [2, 3, 6, 7], 1] = (
-            bounding_cell_indices[:, [0, 1, 4, 5], 1] + 1
-        )
-
-        # populate z indices
-        bounding_cell_indices[:, 0::2, 2] = np.tile(
-            lower_indices[:, 2], (4, 1)
-        ).swapaxes(0, 1)
-        bounding_cell_indices[:, 1::2, 2] = bounding_cell_indices[:, 0::2, 2] + 1
-
-        # Create a mask for cells whose locations would be off the grid,
-        # which occurs when the interpolation point is near the edge of the
-        # grid. These values will be weighted as zero later.
-        mask_cell_off = (
-            (bounding_cell_indices < 0).any(axis=2)
-            | (bounding_cell_indices[:, :, 0] >= n0)
-            | (bounding_cell_indices[:, :, 1] >= n1)
-            | (bounding_cell_indices[:, :, 2] >= n2)
-        )
-
-        # Zero any out of bounds indices so IndexError is not raised
-        # during indexing.  This means an incorrect value will be retrieved
-        # but will not be used because of the zero weighting and the
-        # off the grid mask
-        bounding_cell_indices[mask_cell_off, :] = 0
-
-        # Calculate the volume of the overlap between the point volume
-        # and the volume of each of the surrounding vertices
-        lx = dx - np.abs(pos[:, None, 0] - ax0[bounding_cell_indices[..., 0]])
-        ly = dy - np.abs(pos[:, None, 1] - ax1[bounding_cell_indices[..., 1]])
-        lz = dz - np.abs(pos[:, None, 2] - ax2[bounding_cell_indices[..., 2]])
-        bounding_cell_weights = lx * ly * lz
-
-        # Set the weight for any off-grid vertices (cell or particle) to zero
-        bounding_cell_weights[mask_cell_off] = 0.0
-        bounding_cell_weights[mask_particle_off, ...] = 0.0
-        norms = np.sum(bounding_cell_weights, axis=1)
-        mask_norm_zero = norms == 0.0
-        bounding_cell_weights[~mask_norm_zero] = (
-            bounding_cell_weights[~mask_norm_zero, ...] / norms[~mask_norm_zero, None]
-        )
-
-        # Get the values of each of the interpolated quantities at each
-        # of the bounding vertices
-        vals = self._interp_quantities[
-            bounding_cell_indices[..., 0],
-            bounding_cell_indices[..., 1],
-            bounding_cell_indices[..., 2],
-            :,
-        ]
-        # Construct a weighted average of the interpolated quantities
-        weighted_ave = np.sum(bounding_cell_weights[..., None] * vals, axis=1)
-        weighted_ave[mask_particle_off, :] = np.nan
 
         # Split output array into arrays with units
         # Apply units to output arrays
