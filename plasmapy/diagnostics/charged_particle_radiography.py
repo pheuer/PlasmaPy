@@ -856,7 +856,7 @@ class Tracker:
                 "with this particle energy.",
                 RuntimeWarning,
             )
-
+    
     def _push(self):
         r"""
         Advance particles using an implementation of the time-centered
@@ -884,6 +884,7 @@ class Tracker:
                 "B_y",
                 "B_z",
                 persistent=True,
+                nproc=True,
             )
         elif self.field_weighting == "nearest neighbor":
             Ex, Ey, Ez, Bx, By, Bz = self.grid.nearest_neighbor_interpolator(
