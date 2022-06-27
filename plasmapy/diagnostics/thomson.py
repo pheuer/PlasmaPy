@@ -45,6 +45,8 @@ _m_e = const.m_e.si.value
 
 # Computes the derivative of a function to 4th order precision. Used for the arbitrary scattered power function.
 
+# HI BRYAN
+
 
 @jit(nopython=True)
 def derivative(f, x, order):
@@ -1077,8 +1079,8 @@ def _scattered_power_model_maxwellian(wavelengths, settings=None, **params):
     # Convert temperatures from eV to Kelvin (required by fast_spectral_density)
     Te *= 11605
     Ti *= 11605
-    
-    #Convert density from cm^-3 to m^-3
+
+    # Convert density from cm^-3 to m^-3
     n *= 1e6
 
     alpha, model_Pw = fast_spectral_density_maxwellian(
