@@ -6,6 +6,7 @@ downloading files from the PlasmaPy data repository.
 
 import os
 import requests
+import hashlib
 
 from urllib.parse import urljoin
 
@@ -18,6 +19,37 @@ _BASE_URL = "https://github.com/PlasmaPy/PlasmaPy-data/raw/main/data/"
 
 # TODO: use a config file variable to allow users to set a location for this folder?
 _DOWNLOADS_PATH = os.path.join(os.path.dirname(__file__), "downloads")
+
+
+def filehash(file):
+    """
+    Creates a hash for a file
+
+    Parameters
+    ----------
+    file : str
+        Path to the file
+
+    Returns
+    -------
+    hash : str
+        A hexidecimal digest of the hash
+
+    """
+    
+    # Read+hash in chunks in case files are large
+    # https://stackoverflow.com/questions/22058048/hashing-a-file-in-python
+    BUF_SIZE = 65536
+    
+    sha1 = hashlib.sha1()
+    with open(file, 'rb') as f:
+        while True:
+            data = f.read(BUF_SIZE)
+            if not data:
+                break
+            sha1.update(data)
+            
+    return sha1.hexdigest()
 
 
 def get_file(basename, base_url=_BASE_URL, directory=None):
@@ -48,7 +80,7 @@ def get_file(basename, base_url=_BASE_URL, directory=None):
 
     if "." not in str(basename):
         raise ValueError(f"'filename' ({basename}) must include an extension.")
-
+        
     if directory is None:  # coverage: ignore
         directory = _DOWNLOADS_PATH
 
