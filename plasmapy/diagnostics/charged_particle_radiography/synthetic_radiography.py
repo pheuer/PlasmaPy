@@ -1225,6 +1225,10 @@ class Tracker:
         The stop condition is that most of the particles have entered the grid
         and almost all have now left it.
         """
+        # Stop at end of domain
+        if np.median(self.x[:,2]*1e3) > 1000:
+            return True
+        
         # Count the number of particles who have entered, which is the
         # number of non-zero entries in entered_grid
         self.num_entered = np.nonzero(self.entered_grid)[0].size
@@ -1444,6 +1448,7 @@ class Tracker:
             pbar.update()
 
             self._push()
+            print(f"Median z: {np.median(self.x[:,2])*1e3:.2f} mm")
             it+=1
         pbar.close()
 
