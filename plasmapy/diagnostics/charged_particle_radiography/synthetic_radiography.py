@@ -1226,7 +1226,7 @@ class Tracker:
         and almost all have now left it.
         """
         # Stop at end of domain
-        if np.median(self.x[:,2]*1e3) > 1000:
+        if np.median(self.x[:,2]*1e3) > self.zstop:
             return True
         
         # Count the number of particles who have entered, which is the
@@ -1330,6 +1330,7 @@ class Tracker:
         self,
         dt=None,
         field_weighting="volume averaged",
+        zstop=1000#mm, 
     ):
         r"""
         Runs a particle-tracing simulation.
@@ -1365,6 +1366,7 @@ class Tracker:
         None
 
         """
+        self.zstop=zstop
 
         # Load and validate inputs
         field_weightings = ["volume averaged", "nearest neighbor"]
