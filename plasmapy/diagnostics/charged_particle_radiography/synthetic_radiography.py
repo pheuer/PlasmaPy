@@ -1429,39 +1429,39 @@ class Tracker:
         
         record_len = 1000
         self.x_rec = np.zeros((*self.x.shape, record_len))
+        
+        self.trajectory = np.nan*np.zeros((*self.x.shape, 1000))
 
-        # Initialize a "progress bar" (really more of a meter)
-        # Setting sys.stdout lets this play nicely with regular print()
-        pbar = tqdm(
-            initial=0,
-            total=self._num_tracked + 1,
-            disable=not self.verbose,
-            desc="Iter. 0: Particles on grid",
-            unit="particles",
-            bar_format="{l_bar}{bar}{n:.1e}/{total:.1e} {unit}",
-            file=sys.stdout,
-        )
 
         # Push the particles until the stop condition is satisfied
         # (no more particles on the simulation grid)
         it = 0 # Counter for number of iteratiosn (to print on progress bar)
+        save_it=0
+        print("Running tracker")
         while not self._stop_condition():
-            pbar.set_description(f"Iter. {it+1}: Particles on grid", refresh=False)
-            n_on_grid = np.sum(self.on_any_grid)
-            pbar.n = n_on_grid
-            pbar.last_print_n = n_on_grid
-            pbar.update()
-            
+
             # Write over with NaN in case particles have been deleted
             self.x_rec[:, :, it % record_len] = np.nan
             self.x_rec[self.init_indices, :, it % record_len] = self.x
 
             self._push()
-            
-            if it % 1000 == 0:
+
+            if it % record_len == 0 and it > 1:
                 print(f"Median z: {np.median(self.x[:,2])*1e3:.2f} mm")
+                
+                self.trajectory[:, :, save_it] = np.mean(self.x_rec, axis=-1)
+
+                save_it += 1
+                
             it+=1
-        pbar.close()
+
+        # Trim unfilled parts out of the trajectory array
+        x = np.sum(self.trajectory, axis=(0,1))
+        i = np.nonzero(~np.isnan(x))[0]
+        i = i[-1]
+        self.trajectory = self.trajectory[:, :, :i+1]
+
+        
 
         # Remove particles that will never reach the detector
         self._remove_deflected_particles()
@@ -1591,7 +1591,7 @@ class Tracker:
             detector=self.detector,
             mag=self.mag,
             nparticles=self.nparticles,
-            max_deflection=self.max_deflection.to(u.rad).value,
+            #max_deflection=self.max_deflection.to(u.rad).value,
             x=xloc,
             y=yloc,
             v=v,
@@ -1600,6 +1600,7 @@ class Tracker:
             v0=v0,
             init_indices=self.init_indices,
             x_rec = self.x_rec,
+            trajectory=self.trajectory,
         )
 
     def save_results(self, path):
