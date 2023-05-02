@@ -1426,6 +1426,9 @@ class Tracker:
 
         # Advance the particles to the near the start of the grid
         self._coast_to_grid()
+        
+        record_len = 1000
+        self.x_rec = np.zeros((*self.x.shape, record_len))
 
         # Initialize a "progress bar" (really more of a meter)
         # Setting sys.stdout lets this play nicely with regular print()
@@ -1441,16 +1444,22 @@ class Tracker:
 
         # Push the particles until the stop condition is satisfied
         # (no more particles on the simulation grid)
-        it = 1 # Counter for number of iteratiosn (to print on progress bar)
+        it = 0 # Counter for number of iteratiosn (to print on progress bar)
         while not self._stop_condition():
-            pbar.set_description(f"Iter. {it}: Particles on grid", refresh=False)
+            pbar.set_description(f"Iter. {it+1}: Particles on grid", refresh=False)
             n_on_grid = np.sum(self.on_any_grid)
             pbar.n = n_on_grid
             pbar.last_print_n = n_on_grid
             pbar.update()
+            
+            # Write over with NaN in case particles have been deleted
+            self.x_rec[:, :, it % record_len] = np.nan
+            self.x_rec[self.init_indices, :, it % record_len] = self.x
 
             self._push()
-            print(f"Median z: {np.median(self.x[:,2])*1e3:.2f} mm")
+            
+            if it % 1000 == 0:
+                print(f"Median z: {np.median(self.x[:,2])*1e3:.2f} mm")
             it+=1
         pbar.close()
 
@@ -1590,6 +1599,7 @@ class Tracker:
             y0=y0loc,
             v0=v0,
             init_indices=self.init_indices,
+            x_rec = self.x_rec,
         )
 
     def save_results(self, path):
