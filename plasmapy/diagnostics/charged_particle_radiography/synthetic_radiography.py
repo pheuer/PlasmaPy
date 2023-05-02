@@ -1449,7 +1449,7 @@ class Tracker:
             if it % record_len == 0 and it > 1:
                 print(f"Median z: {np.median(self.x[:,2])*1e3:.2f} mm")
                 
-                self.trajectory[:, :, save_it] = np.mean(self.x_rec, axis=-1)
+                self.trajectory[:, :, save_it] = np.nanmean(self.x_rec, axis=-1)
 
                 save_it += 1
                 
