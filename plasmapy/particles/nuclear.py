@@ -1,5 +1,5 @@
 """Functions that are related to nuclear reactions."""
-__all__ = ["nuclear_binding_energy", "nuclear_reaction_energy", "mass_energy"]
+__all__ = ["nuclear_binding_energy",  "mass_energy", 'NuclearReaction']
 
 import re
 from numbers import Integral
@@ -109,10 +109,11 @@ def mass_energy(
     return particle.mass_energy
 
 
-def nuclear_reaction_energy(*args, **kwargs) -> u.Quantity[u.J]:  # noqa: C901, PLR0915
-    """
-    Return the released energy from a nuclear reaction.
 
+class NuclearReaction:
+    """
+    Class representing a nuclear reaction. 
+    
     Parameters
     ----------
     reaction : `str`, optional, positional-only
@@ -128,61 +129,76 @@ def nuclear_reaction_energy(*args, **kwargs) -> u.Quantity[u.J]:  # noqa: C901, 
         A list or tuple containing the products of a nuclear reaction
         (e.g., ``['alpha', 'n']``), or a string representing the sole
         product.
-
-    Returns
-    -------
-    energy : `~astropy.units.Quantity`
-        The difference between the mass energy of the reactants and
-        the mass energy of the products in a nuclear reaction.  This
-        quantity will be positive if the reaction is exothermic
-        (releases energy) and negative if the reaction is endothermic
-        (absorbs energy).
-
-    Raises
-    ------
-    `ParticleError`
-        If the reaction is not valid, there is insufficient
-        information to determine an isotope, the baryon number is
-        not conserved, or the charge is not conserved.
-
-    See Also
-    --------
-    nuclear_binding_energy : finds the binding energy of an isotope
-
-    Notes
-    -----
-    This function requires either a string containing the nuclear
-    reaction, or reactants and products as two keyword-only lists
-    containing strings representing the isotopes and other particles
-    participating in the reaction.
-
-    Examples
-    --------
-    >>> import astropy.units as u
-    >>> nuclear_reaction_energy("D + T --> alpha + n")
-    <Quantity 2.8181e-12 J>
-    >>> triple_alpha1 = "2*He-4 --> Be-8"
-    >>> triple_alpha2 = "Be-8 + alpha --> carbon-12"
-    >>> energy_triplealpha1 = nuclear_reaction_energy(triple_alpha1)
-    >>> energy_triplealpha2 = nuclear_reaction_energy(triple_alpha2)
-    >>> print(energy_triplealpha1, energy_triplealpha2)
-    -1.471430e-14 J 1.1802573e-12 J
-    >>> energy_triplealpha2.to(u.MeV)
-    <Quantity 7.3665870 MeV>
-    >>> nuclear_reaction_energy(reactants=["n"], products=["p+", "e-"])
-    <Quantity 1.25343e-13 J>
+    
     """
+    
+    _errmsg = "Invalid nuclear reaction."
+    
+    _input_err_msg = (
+        "The inputs to nuclear_reaction_energy should be either "
+        "a string representing a nuclear reaction (e.g., "
+        "'D + T -> He-4 + n') or the keywords 'reactants' and "
+        "'products' as lists with the nucleons or particles "
+        "involved in the reaction (e.g., reactants=['D', 'T'] "
+        "and products=['He-4', 'n']."
+    )
+    
+    
+    def __init__(self, *args, **kwargs):
+        
+        reaction_string_is_input = args and not kwargs and len(args) == 1
 
-    # TODO: Allow for neutrinos, under the assumption that they have no mass.
+        reactants_products_are_inputs = kwargs and not args and len(kwargs) == 2
 
-    # TODO: Add check for lepton number conservation; however, we might wish
-    # to have violation of lepton number issuing a warning since these are
-    # often omitted from nuclear reactions when calculating the energy since
-    # the mass is tiny.
+        if reaction_string_is_input == reactants_products_are_inputs:
+            raise ParticleError(self._input_err_msg)
 
-    errmsg = "Invalid nuclear reaction."
+        if reaction_string_is_input:
+            reaction = args[0]
 
-    def process_particles_list(
+            if not isinstance(reaction, str):
+                raise TypeError(self._input_err_msg)
+            elif "->" not in reaction:
+                raise ParticleError(
+                    f"The reaction '{reaction}' is missing a '->'"
+                    " or '-->' between the reactants and products."
+                )
+
+            try:
+                LHS_string, RHS_string = re.split("-+>", reaction)
+                LHS_list = re.split(r" \+ ", LHS_string)
+                RHS_list = re.split(r" \+ ", RHS_string)
+                reactants = self._process_particles_list(LHS_list)
+                products = self._process_particles_list(RHS_list)
+            except ParticleError as ex:
+                raise ParticleError(f"{reaction} is not a valid nuclear reaction.") from ex
+
+        elif reactants_products_are_inputs:
+            try:
+                reactants = self._process_particles_list(kwargs["reactants"])
+                products = self._process_particles_list(kwargs["products"])
+            except TypeError as t:
+                raise TypeError(self._input_err_msg) from t
+            except ParticleError as e:
+                raise ParticleError(self._errmsg) from e
+
+        if self._total_baryon_number(self.reactants) != self._total_baryon_number(self.products):
+            raise ParticleError(
+                f"The baryon number is not conserved for {self.reactants = } and {self.products = }."
+            )
+
+        if self._total_charge(self.reactants) != self._total_charge(self.products):
+            raise ParticleError(
+                f"Total charge is not conserved for {self.reactants = } and {self.products = }."
+            )
+            
+            
+        self.reactants = reactants
+        self.products = products
+        
+        
+        
+    def _process_particles_list(self,
         unformatted_particles_list: list[str | Particle],
     ) -> list[Particle]:
         """
@@ -192,6 +208,8 @@ def nuclear_reaction_energy(*args, **kwargs) -> u.Quantity[u.J]:  # noqa: C901, 
         multiplier.  A string argument will be treated as a list
         containing that string as its sole item.
         """
+        
+        
 
         if isinstance(unformatted_particles_list, str):
             unformatted_particles_list = [unformatted_particles_list]
@@ -217,10 +235,10 @@ def nuclear_reaction_energy(*args, **kwargs) -> u.Quantity[u.J]:  # noqa: C901, 
                 try:
                     particle = Particle(item)
                 except InvalidParticleError as exc:
-                    raise ParticleError(errmsg) from exc
+                    raise ParticleError(self._errmsg) from exc
 
                 if particle.element and not particle.isotope:
-                    raise ParticleError(errmsg)
+                    raise ParticleError(self._errmsg)
 
                 particles += [particle] * multiplier
 
@@ -231,15 +249,18 @@ def nuclear_reaction_energy(*args, **kwargs) -> u.Quantity[u.J]:  # noqa: C901, 
                 ) from None
 
         return particles
-
-    def total_baryon_number(particles: list[Particle]) -> int:
+        
+        
+        
+    # TODO: Refactor these three as methods on ParticleList! 
+    def _total_baryon_number(particles: list[Particle]) -> int:
         """
         Find the total number of baryons minus the number of
         antibaryons in a list of particles.
         """
         return sum(particle.baryon_number for particle in particles)
 
-    def total_charge(particles: list[Particle]) -> int:
+    def _total_charge(particles: list[Particle]) -> int:
         """
         Find the total charge number in a list of nuclides
         (excluding bound electrons) and other particles.
@@ -252,7 +273,7 @@ def nuclear_reaction_energy(*args, **kwargs) -> u.Quantity[u.J]:  # noqa: C901, 
                 total_charge += particle.charge_number
         return total_charge
 
-    def add_mass_energy(particles: list[Particle]) -> u.Quantity[u.J]:
+    def _add_mass_energy(particles: list[Particle]) -> u.Quantity[u.J]:
         """
         Find the total mass energy from a list of particles, while
         taking the masses of the fully ionized isotopes.
@@ -261,60 +282,64 @@ def nuclear_reaction_energy(*args, **kwargs) -> u.Quantity[u.J]:  # noqa: C901, 
         for particle in particles:
             total_mass_energy += particle.mass_energy
         return total_mass_energy.to(u.J)
+        
+        
+    @property
+    def reaction_energy(self) -> u.Quantity[u.J]:  # noqa: C901, PLR0915
+        """
+        Return the released energy from a nuclear reaction.
+    
+        Returns
+        -------
+        energy : `~astropy.units.Quantity`
+            The difference between the mass energy of the reactants and
+            the mass energy of the products in a nuclear reaction.  This
+            quantity will be positive if the reaction is exothermic
+            (releases energy) and negative if the reaction is endothermic
+            (absorbs energy).
+    
+        Raises
+        ------
+        `ParticleError`
+            If the reaction is not valid, there is insufficient
+            information to determine an isotope, the baryon number is
+            not conserved, or the charge is not conserved.
+    
+        See Also
+        --------
+        nuclear_binding_energy : finds the binding energy of an isotope
+    
+        Notes
+        -----
+        This function requires either a string containing the nuclear
+        reaction, or reactants and products as two keyword-only lists
+        containing strings representing the isotopes and other particles
+        participating in the reaction.
+    
+        Examples
+        --------
+        >>> import astropy.units as u
+        >>> nuclear_reaction_energy("D + T --> alpha + n")
+        <Quantity 2.8181e-12 J>
+        >>> triple_alpha1 = "2*He-4 --> Be-8"
+        >>> triple_alpha2 = "Be-8 + alpha --> carbon-12"
+        >>> energy_triplealpha1 = nuclear_reaction_energy(triple_alpha1)
+        >>> energy_triplealpha2 = nuclear_reaction_energy(triple_alpha2)
+        >>> print(energy_triplealpha1, energy_triplealpha2)
+        -1.471430e-14 J 1.1802573e-12 J
+        >>> energy_triplealpha2.to(u.MeV)
+        <Quantity 7.3665870 MeV>
+        >>> nuclear_reaction_energy(reactants=["n"], products=["p+", "e-"])
+        <Quantity 1.25343e-13 J>
+        """
+    
+        # TODO: Allow for neutrinos, under the assumption that they have no mass.
+    
+        # TODO: Add check for lepton number conservation; however, we might wish
+        # to have violation of lepton number issuing a warning since these are
+        # often omitted from nuclear reactions when calculating the energy since
+        # the mass is tiny.
 
-    input_err_msg = (
-        "The inputs to nuclear_reaction_energy should be either "
-        "a string representing a nuclear reaction (e.g., "
-        "'D + T -> He-4 + n') or the keywords 'reactants' and "
-        "'products' as lists with the nucleons or particles "
-        "involved in the reaction (e.g., reactants=['D', 'T'] "
-        "and products=['He-4', 'n']."
-    )
-
-    reaction_string_is_input = args and not kwargs and len(args) == 1
-
-    reactants_products_are_inputs = kwargs and not args and len(kwargs) == 2
-
-    if reaction_string_is_input == reactants_products_are_inputs:
-        raise ParticleError(input_err_msg)
-
-    if reaction_string_is_input:
-        reaction = args[0]
-
-        if not isinstance(reaction, str):
-            raise TypeError(input_err_msg)
-        elif "->" not in reaction:
-            raise ParticleError(
-                f"The reaction '{reaction}' is missing a '->'"
-                " or '-->' between the reactants and products."
-            )
-
-        try:
-            LHS_string, RHS_string = re.split("-+>", reaction)
-            LHS_list = re.split(r" \+ ", LHS_string)
-            RHS_list = re.split(r" \+ ", RHS_string)
-            reactants = process_particles_list(LHS_list)
-            products = process_particles_list(RHS_list)
-        except ParticleError as ex:
-            raise ParticleError(f"{reaction} is not a valid nuclear reaction.") from ex
-
-    elif reactants_products_are_inputs:
-        try:
-            reactants = process_particles_list(kwargs["reactants"])
-            products = process_particles_list(kwargs["products"])
-        except TypeError as t:
-            raise TypeError(input_err_msg) from t
-        except ParticleError as e:
-            raise ParticleError(errmsg) from e
-
-    if total_baryon_number(reactants) != total_baryon_number(products):
-        raise ParticleError(
-            f"The baryon number is not conserved for {reactants = } and {products = }."
-        )
-
-    if total_charge(reactants) != total_charge(products):
-        raise ParticleError(
-            f"Total charge is not conserved for {reactants = } and {products = }."
-        )
-
-    return add_mass_energy(reactants) - add_mass_energy(products)
+    
+        return (self._add_mass_energy(self.reactants) - 
+                self._add_mass_energy(self.products))

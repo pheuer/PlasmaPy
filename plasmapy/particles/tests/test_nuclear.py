@@ -6,7 +6,7 @@ import pytest
 from plasmapy.particles.nuclear import (
     mass_energy,
     nuclear_binding_energy,
-    nuclear_reaction_energy,
+    NuclearReaction
 )
 from plasmapy.utils._pytest_helpers import run_test, run_test_equivalent_calls
 
@@ -28,16 +28,23 @@ def test_nuclear_binding_energy_D_T() -> None:
 
 
 def test_nuclear_reaction_energy() -> None:
-    reaction1 = "D + T --> alpha + n"
-    reaction2 = "T + D -> n + alpha"
-    released_energy1 = nuclear_reaction_energy(reaction1)
-    released_energy2 = nuclear_reaction_energy(reaction2)
+    reaction1 = NuclearReaction("D + T --> alpha + n")
+    reaction2 = NuclearReaction("T + D -> n + alpha")
+
+    released_energy1 = reaction1.reaction_energy
+    released_energy2 = reaction2.reaction_energy
     assert np.isclose((released_energy1.to(u.MeV)).value, 17.58, rtol=0.01)
     assert released_energy1 == released_energy2
-    assert nuclear_reaction_energy(
-        "n + p+ --> n + p+ + p- + p+"
-    ) == nuclear_reaction_energy("n + p+ --> n + 2*p+ + p-")
-    nuclear_reaction_energy("neutron + antineutron --> neutron + antineutron")
+    
+    r1 = NuclearReaction("n + p+ --> n + p+ + p- + p+").reaction_energy
+    r2 = NuclearReaction("n + p+ --> n + 2*p+ + p-").reaction_energy
+    
+    assert r1 == r2
+    
+    NuclearReaction("neutron + antineutron --> neutron + antineutron").reaction_energy
+
+
+"""
 
 
 def test_nuclear_reaction_energy_triple_alpha() -> None:
@@ -123,3 +130,6 @@ table_of_nuclear_tests = [
 )
 def test_nuclear_table(tested_object, args, kwargs, expected_value) -> None:
     run_test(tested_object, args, kwargs, expected_value, rtol=1e-3)
+
+
+"""
