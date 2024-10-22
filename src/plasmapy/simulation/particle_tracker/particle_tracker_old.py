@@ -19,8 +19,6 @@ import numpy as np
 from numpy.typing import NDArray
 from tqdm import tqdm
 
-import multiprocessing
-
 from plasmapy.formulary.collisions.misc import Bethe_stopping_lite
 from plasmapy.particles import Particle, particle_input
 from plasmapy.particles.atomic import stopping_power
@@ -116,6 +114,10 @@ class ParticleTracker:
         everywhere. A warning will be raised if any of the additional
         required quantities are missing and are set to zero.
 
+    verbose : bool, optional
+        If true, updates on the status of the program will be printed
+        into the standard output while running. The default is True.
+
     Warns
     -----
     `~plasmapy.utils.exceptions.RelativityWarning`
@@ -193,66 +195,72 @@ class ParticleTracker:
         dt_range=None,
         field_weighting: str = "volume averaged",
         req_quantities=None,
-        ncores: int | None = None,
+        verbose: bool = True,
     ) -> None:
-        
-        self.verbose=True
-        
         # Instantiate the integrator object for use in the _push() method
         self._integrator: AbstractIntegrator = (
             RelativisticBorisIntegrator()
             if not particle_integrator
             else particle_integrator()
         )
-        
-        # Determine the number of cores on which to run the Tracker
-        if ncores == -1:
-            self.ncores = multiprocessing.cpu_count()
-        else:
-            self.ncores = ncores
-            
-        # This flag records whether a relativity warning has been raised
+
         self._raised_relativity_warning = False
-        
+
+        # self.grid is the grid object
+        self.grids = self._grid_factory(grids)
+
+        # Errors for unsupported grid types are raised in the validate constructor inputs method
+
+        # Instantiate the "do not save" save routine if no save routine was specified
+        if save_routine is None:
+            save_routine = DoNotSaveSaveRoutine()
+
+        # Validate inputs to the run function
+        self._validate_constructor_inputs(
+            grids, termination_condition, save_routine, field_weighting
+        )
+
+        self._set_time_step_attributes(dt, termination_condition, save_routine)
+
+        if dt_range is not None and not self._is_adaptive_time_step:
+            raise ValueError(
+                "Specifying a time step range is only possible for an adaptive time step."
+            )
+
+        self.verbose = verbose
+
         # This flag records whether the simulation has been run
         self._has_run = False
 
         # Should the tracker update particle energies after every time step to
         # reflect stopping?
         self._do_stopping = False
-        
-        
-        # Instantiate the "do not save" save routine if no save routine was specified
-        if save_routine is None:
-            save_routine = DoNotSaveSaveRoutine()
 
-        # Validate inputs to the run function
-        # Errors for unsupported grid types are raised in the validate constructor inputs method
-        self._validate_constructor_inputs(
-            grids, termination_condition, save_routine, field_weighting
-        )
+        # Raise a ValueError if a synchronized dt is required by termination condition or save routine but one is
+        # not given. This is only the case if an array with differing entries is specified for dt
+        if self._require_synchronized_time and not self._is_synchronized_time_step:
+            raise ValueError(
+                "Please specify a synchronized time step to use the simulation with this configuration!"
+            )
 
-        # Create a list of validated grids from the grids input
-        self.grids = self._grid_factory(grids)
-        
         # Ensure that the grids have defined the necessary quantities or at least zeroed
         self._required_quantities = self._REQUIRED_QUANTITIES.copy()
         self._preprocess_grids(req_quantities)
-        
+
         # self.grid_arr is the grid positions in si units. This is created here
         # so that it isn't continuously called later
         self.grids_arr = [grid.grid.to(u.m).value for grid in self.grids]
-        
-        # Setup the timestep
-        self._set_time_step_attributes(dt, dt_range, termination_condition, save_routine)
-        
-        if self._is_adaptive_time_step:
-            # Initialize default values for time steps per gyroperiod and Courant parameter
-            self.setup_adaptive_time_step()
-            
+
+        self.dt = dt.to(u.s).value if dt is not None else None
+
+        dt_range = [0, np.inf] * u.s if dt_range is None else dt_range
+        self.dt_range = dt_range.to(u.s).value
+
         # Update the `tracker` attribute so that the stop condition & save routine can be used
         termination_condition.tracker = self
+
         save_routine.tracker = self
+
         self.termination_condition = termination_condition
         self.save_routine = save_routine
 
@@ -272,17 +280,10 @@ class ParticleTracker:
             return None
 
     def _set_time_step_attributes(
-        self, dt, dt_range, termination_condition, save_routine
+        self, dt, termination_condition, save_routine
     ) -> None:
-        """
-        Sets up the timestep attributes of the Tracker based on the inputs.
-        
-        Determines whether the simulation will follow a synchronized or adaptive time step,
-        then sets up the dt, dt_range variables appropriately as well as flags that
-        indicate whether the timestep is adaptive, synchronized, etc.
-        """
-        
-        # Determine whether conditions are met that requires a synchronized timestep
+        """Determines whether the simulation will follow a synchronized or adaptive time step."""
+
         self._require_synchronized_time = (
             termination_condition.require_synchronized_dt
             or (save_routine is not None and save_routine.require_synchronized_dt)
@@ -302,23 +303,10 @@ class ParticleTracker:
         elif dt is None:
             self._is_synchronized_time_step = self._require_synchronized_time
             self._is_adaptive_time_step = True
-            
-        if dt_range is not None and not self._is_adaptive_time_step:
-            raise ValueError(
-                "Specifying a time step range is only possible for an adaptive time step."
-            )
 
-        # Raise a ValueError if a synchronized dt is required by termination condition or save routine but one is
-        # not given. This is only the case if an array with differing entries is specified for dt
-        if self._require_synchronized_time and not self._is_synchronized_time_step:
-            raise ValueError(
-                "Please specify a synchronized time step to use the simulation with this configuration!"
-            )
-
-        self.dt = dt.to(u.s).value if dt is not None else None
-
-        dt_range = [0, np.inf] * u.s if dt_range is None else dt_range
-        self.dt_range = dt_range.to(u.s).value
+        if self._is_adaptive_time_step:
+            # Initialize default values for time steps per gyroperiod and Courant parameter
+            self.setup_adaptive_time_step()
 
     def setup_adaptive_time_step(
         self,
@@ -473,6 +461,47 @@ class ParticleTracker:
         if self.verbose:
             print(msg)  # noqa: T201
 
+    @particle_input
+    def load_particles(
+        self,
+        x,
+        v,
+        particle: Particle,
+    ) -> None:
+        r"""
+        Load arrays of particle positions and velocities.
+
+        Parameters
+        ----------
+        x : `~astropy.units.Quantity`, shape (N,3)
+            Positions for N particles
+
+        v : `~astropy.units.Quantity`, shape (N,3)
+            Velocities for N particles
+
+        particle : |particle-like|
+            Representation of the particle species as either a |Particle| object
+            or a string representation.
+        """
+        # Raise an error if the run method has already been called.
+        self._enforce_order()
+
+        self.q = particle.charge.to(u.C).value
+        self.m = particle.mass.to(u.kg).value
+        self._particle = particle
+
+        if x.shape[0] != v.shape[0]:
+            raise ValueError(
+                "Provided x and v arrays have inconsistent numbers "
+                " of particles "
+                f"({x.shape[0]} and {v.shape[0]} respectively)."
+            )
+        else:
+            self.nparticles: int = x.shape[0]
+
+        self.x = x.to(u.m).value
+        self.v = v.to(u.m / u.s).value
+
     def _is_quantity_defined_on_one_grid(self, quantity: str) -> bool:
         r"""
         Check to ensure the provided quantity string is defined on at least one grid.
@@ -593,74 +622,6 @@ class ParticleTracker:
         self._do_stopping = True
         self._stopping_method = method
         self._stopping_power_interpolators = stopping_power_interpolators
-        
-        
-    
-    
-    @particle_input
-    def load_particles(
-        self,
-        x,
-        v,
-        particle: Particle,
-    ) -> None:
-        r"""
-        Load arrays of particle positions and velocities.
-
-        Parameters
-        ----------
-        x : `~astropy.units.Quantity`, shape (N,3)
-            Positions for N particles
-
-        v : `~astropy.units.Quantity`, shape (N,3)
-            Velocities for N particles
-
-        particle : |particle-like|
-            Representation of the particle species as either a |Particle| object
-            or a string representation.
-        """
-        # Raise an error if the run method has already been called.
-        self._enforce_order()
-
-        self.q = particle.charge.to(u.C).value
-        self.m = particle.mass.to(u.kg).value
-        self._particle = particle
-
-        if x.shape[0] != v.shape[0]:
-            raise ValueError(
-                "Provided x and v arrays have inconsistent numbers "
-                " of particles "
-                f"({x.shape[0]} and {v.shape[0]} respectively)."
-            )
-        else:
-            self.nparticles: int = x.shape[0]
-
-        self.x = x.to(u.m).value
-        self.v = v.to(u.m / u.s).value
-    
-    
-    def batch_particles(self):
-        """
-        Divide particle arrays into lists of particle arrays for parallel processing. 
-        """
-        batch_size = 1000 # TODO: make a method to set this
-        
-        self.nbatches = np.floor(self.x.shape[0]/batch_size)
-        
-        self.x_batches = ([self.x[i*batch_size:(i+1)*batch_size] for i in range(self.nbatches)] + 
-                          [self.x[self.nbathes*batch_size:-1], ])
-        self.v_batches = ([self.v[i*batch_size:(i+1)*batch_size] for i in range(self.nbatches)] + 
-                          [self.v[self.nbathes*batch_size:-1], ])
-        
-    
-    
-    
-    
-    
-    
-    
-    
-        
 
     def run(self) -> None:
         r"""
