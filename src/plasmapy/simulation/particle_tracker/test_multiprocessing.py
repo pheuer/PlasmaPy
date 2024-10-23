@@ -44,13 +44,12 @@ if __name__ == '__main__':
         
         #grid = multiprocessing.sharedctypes.copy(arr)
         TASKS = [(grid,batch ) for batch in batches]
-        
 
-        
         result = pool.starmap(push_fcn, TASKS)
         
         for i, res in enumerate(result):
             output[i*batchsize:(i+1)*batchsize] = res
         
+    print(output)
     print(output.shape)
         

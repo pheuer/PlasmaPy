@@ -746,9 +746,17 @@ class ParticleTracker:
         )
         """
         
-        # TODO: Multiprocessing pool over batches goes here
-        with multiprocessing.Pool(self.ncores) as pool:
-            res = pool.apply_async(self.run_batch(i) for i in range(self.ncores) )
+        TASKS = [(self.grids,batch ) for batch in batches]
+        
+        with multiprocessing.Pool(6) as pool:
+            #grid = multiprocessing.sharedctypes.copy(arr)
+            
+
+            result = pool.starmap(self.run_batch, TASKS)
+            
+            for i, res in enumerate(result):
+                output[i*batchsize:(i+1)*batchsize] = res
+        
 
        
         # Simulation has finished running
