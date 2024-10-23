@@ -1,40 +1,56 @@
 import multiprocessing
 import numpy as np
 from os import getpid
+import time
 
-x = np.random.random(10000)
-arr = np.random.random(10)
-output = np.zeros(10000)
-batchsize = 10
-nbatches = 1000
+size = 1000
+x = np.random.random(size)
+
+
+batchsize = 100
+nbatches = int(size/batchsize)
 batches = [ x[i*batchsize:(i+1)*batchsize] for i in range(nbatches)]
 
-def fcn(args):
-    print("I'm process", getpid())
-    x,y = args
-    return x + y
+
+
+
+
+class Grid:
+    def __init__(self):
+        self.arr = np.random.random(batchsize)
+
+    def increment(self, x):
+        time.sleep(0.01)
+        return self.arr + x
+    
+    
+def push_fcn(grid, x):
+    print(grid)
+    #print("I'm process", getpid())
+    return grid.increment(x)
+    
+    
+# Single grid object, will be copied for each
+# process automatically by python
+grid = Grid()
+    
 
 
 if __name__ == '__main__':
-    with multiprocessing.Pool(4) as pool:
+    
+    output = np.zeros(size)
+    
+    with multiprocessing.Pool(6) as pool:
         
         #grid = multiprocessing.sharedctypes.copy(arr)
-        
-        grid = arr
-        TASKS = [(batch, grid) for batch in batches]
+        TASKS = [(grid,batch ) for batch in batches]
         
 
         
-        result = pool.map(fcn, TASKS)
+        result = pool.starmap(push_fcn, TASKS)
         
-        print(result)
+        for i, res in enumerate(result):
+            output[i*batchsize:(i+1)*batchsize] = res
         
-        #print(result)
+    print(output.shape)
         
-        """
-        tasks = [ (np.random.random(10), x) for x in batches]
-        
-        results  = [ pool.apply_async(fcn,t) for t in tasks]
-        for r in results:
-            print(r.get()) 
-        """
