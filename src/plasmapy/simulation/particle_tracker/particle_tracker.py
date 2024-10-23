@@ -5,7 +5,7 @@ Module containing the definition for the general particle tracker.
 __all__ = [
     "ParticleTracker",
 ]
-
+import copy
 import collections
 import sys
 import typing
@@ -319,6 +319,16 @@ class ParticleTracker:
 
         dt_range = [0, np.inf] * u.s if dt_range is None else dt_range
         self.dt_range = dt_range.to(u.s).value
+        
+    @property
+    def is_adaptive_time_step(self) -> bool:
+        """Return whether the simulation is calculating an adaptive time step or using the user-provided time step."""
+        return self._is_adaptive_time_step
+
+    @property
+    def is_synchronized_time_step(self) -> bool:
+        """Return if the simulation is applying the same time step across all particles."""
+        return self._is_synchronized_time_step
 
     def setup_adaptive_time_step(
         self,
@@ -635,22 +645,65 @@ class ParticleTracker:
         else:
             self.nparticles: int = x.shape[0]
 
-        self.x = x.to(u.m).value
-        self.v = v.to(u.m / u.s).value
+        self.x0 = x.to(u.m).value
+        self.v0 = v.to(u.m / u.s).value
     
     
-    def batch_particles(self):
+    def _setup_batches(self):
         """
-        Divide particle arrays into lists of particle arrays for parallel processing. 
+        Divide particle arrays into lists for parallel processing. 
         """
-        batch_size = 1000 # TODO: make a method to set this
+        batch_size = int(1e4)# TODO: make a method to set this
         
         self.nbatches = np.floor(self.x.shape[0]/batch_size)
         
-        self.x_batches = ([self.x[i*batch_size:(i+1)*batch_size] for i in range(self.nbatches)] + 
-                          [self.x[self.nbathes*batch_size:-1], ])
-        self.v_batches = ([self.v[i*batch_size:(i+1)*batch_size] for i in range(self.nbatches)] + 
-                          [self.v[self.nbathes*batch_size:-1], ])
+        self.x_batches = ([self.x0[i*batch_size:(i+1)*batch_size] for i in range(self.nbatches)] + 
+                          [self.x0[self.nbathes*batch_size:-1], ])
+        self.v_batches = ([self.v0[i*batch_size:(i+1)*batch_size] for i in range(self.nbatches)] + 
+                          [self.v0[self.nbathes*batch_size:-1], ])
+        
+        self.nparticles_batches = [self.x_batches[i].shape[0] for i in range(self.nbatches) ]
+        
+        self.iterations_batches = [0]*self.nbatches
+        
+        self.time_batches = [np.zeros((nparticles, 1)) if not self.is_synchronized_time_step else 0
+                             for nparticles in self.nparticles_batches]
+        
+        self.entered_grid_batches = [np.zeros([nparticles]).astype(np.bool_) 
+                                     for nparticles in self.nparticles_batches]
+        
+        
+        
+        
+        
+    def run_batch(self, batch_num):
+
+        is_finished = False
+        while not (is_finished or self.nparticles_tracked == 0):
+            is_finished = self.termination_condition.is_finished(batch_num)
+
+            self._push(batch_num)
+
+            # The state of a step is saved after each time step by calling `post_push_hook`
+            # The save routine may choose to do nothing with this information
+            if self.save_routine is not None:
+                # TODO: Saving during this step risks filename conflicts - save batches into separate files?
+                self.save_routine.post_push_hook(batch_num)
+                
+        # Return final positions
+
+        
+        
+        
+    
+    
+    
+        
+        
+        
+        
+        
+        
         
     
     
@@ -677,23 +730,11 @@ class ParticleTracker:
 
         self._enforce_particle_creation()
 
-        # Keep track of how many push steps have occurred for trajectory tracing
-        # This number is independent of the current "time" of the simulation
-        self.iteration_number = 0
-
-        # The time state of a simulation with synchronized time step can be described
-        # by a single number. Otherwise, a time value is required for each particle.
-        self.time: NDArray[np.float64] | float = (
-            np.zeros((self.nparticles, 1)) if not self.is_synchronized_time_step else 0
-        )
-
-        # Entered grid -> non-zero if particle EVER entered any grid
-        self.entered_grid: NDArray[np.bool_] = np.zeros([self.nparticles]).astype(
-            np.bool_
-        )
-
+        
         # Initialize a "progress bar" (really more of a meter)
         # Setting sys.stdout lets this play nicely with regular print()
+        # TODO: Make progress bar count the pool progress
+        """
         pbar = tqdm(
             initial=0,
             total=self.termination_condition.total,
@@ -703,27 +744,13 @@ class ParticleTracker:
             bar_format="{l_bar}{bar}{n:.1e}/{total:.1e} {unit}",
             file=sys.stdout,
         )
+        """
+        
+        # TODO: Multiprocessing pool over batches goes here
+        with multiprocessing.Pool(self.ncores) as pool:
+            res = pool.apply_async(self.run_batch(i) for i in range(self.ncores) )
 
-        # Push the particles until the termination condition is satisfied
-        # or the number of particles being evolved is zero
-        is_finished = False
-        while not (is_finished or self.nparticles_tracked == 0):
-            is_finished = self.termination_condition.is_finished
-            progress = min(
-                self.termination_condition.progress, self.termination_condition.total
-            )
-
-            pbar.n = progress
-            pbar.last_print_n = progress
-            pbar.update(0)
-
-            self._push()
-
-            # The state of a step is saved after each time step by calling `post_push_hook`
-            # The save routine may choose to do nothing with this information
-            if self.save_routine is not None:
-                self.save_routine.post_push_hook()
-
+       
         # Simulation has finished running
         self._has_run = True
 
@@ -1158,15 +1185,7 @@ class ParticleTracker:
         """
         return int(self._removed_particle_mask.sum())
 
-    @property
-    def is_adaptive_time_step(self) -> bool:
-        """Return whether the simulation is calculating an adaptive time step or using the user-provided time step."""
-        return self._is_adaptive_time_step
-
-    @property
-    def is_synchronized_time_step(self) -> bool:
-        """Return if the simulation is applying the same time step across all particles."""
-        return self._is_synchronized_time_step
+    
 
     def _enforce_particle_creation(self) -> None:
         """Ensure the array position array `x` has been populated."""
