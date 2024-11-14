@@ -2,54 +2,52 @@ import multiprocessing
 import numpy as np
 from os import getpid
 import time
+import astropy.units as u
+from functools import partial
+from plasmapy.plasma.grids import CartesianGrid
 
-size = 1000
-x = np.random.random(size)
-
-
-batchsize = 100
-nbatches = int(size/batchsize)
-batches = [ x[i*batchsize:(i+1)*batchsize] for i in range(nbatches)]
+nparticles = int(1e4)
+x = np.random.random((nparticles,3))
 
 
+batchsize = int(2)
+nbatches = int(nparticles/batchsize)
+batches = [ x[i*batchsize:(i+1)*batchsize, :] for i in range(nbatches)]
 
 
+grid = CartesianGrid(-10*u.mm, 10*u.mm, num=200)
+grid.add_quantities(B_x = np.random.random((200,200,200))*u.T)
 
-class Grid:
-    def __init__(self):
-        self.arr = np.random.random(batchsize)
 
-    def increment(self, x):
-        time.sleep(0.01)
-        return self.arr + x
-    
-    
-def push_fcn(grid, x):
-    print(grid)
-    #print("I'm process", getpid())
-    return grid.increment(x)
-    
-    
-# Single grid object, will be copied for each
-# process automatically by python
-grid = Grid()
-    
+def interp(x, grid=None):
+    res = grid.nearest_neighbor_interpolator(x, 'B_x')
+    return res, id(grid)
+
+
 
 
 if __name__ == '__main__':
     
-    output = np.zeros(size)
-    
-    with multiprocessing.Pool(6) as pool:
+    #t0 = time.time()
+    #output1, gid = interp(grid, x)
+    #print(f"Serial: {time.time() - t0} s")
         
-        #grid = multiprocessing.sharedctypes.copy(arr)
-        TASKS = [(grid,batch ) for batch in batches]
+    
+    
+    t0 = time.time()
+    output2 = np.zeros(nparticles)
+    gids = []
+    
+    #x = multiprocessing.Array('d', x)
+    with multiprocessing.Pool(processes=6) as pool:
 
-        result = pool.starmap(push_fcn, TASKS)
+        result = pool.map(partial(interp, grid=grid), batches)
         
         for i, res in enumerate(result):
-            output[i*batchsize:(i+1)*batchsize] = res
-        
-    print(output)
-    print(output.shape)
-        
+            output2[i*batchsize:(i+1)*batchsize] = res[0]
+            gids.append(res[1])
+    
+    
+    gids = np.unique(np.array(gids))
+    print(gids.size)
+    print(f"Multipool: {time.time() - t0} s")
