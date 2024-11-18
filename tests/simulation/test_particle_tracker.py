@@ -206,7 +206,7 @@ def test_parallel_run():
     sim2.load_particles(x, v, point_particle)
     sim2.run_parallel()
 
-    # TODO: compare that the final values are the same
+    assert np.allclose(sim1.x, sim2.x)
 
 
 class TestParticleTrackerGyroradius:
