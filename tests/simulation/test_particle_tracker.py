@@ -168,6 +168,47 @@ def test_particle_tracker_load_particles_shape_error(
         )
 
 
+def test_parallel_run():
+    L = 1e6 * u.km
+    grid = CartesianGrid(-L, L, num=2)
+    grid_shape = (2,) * 3
+    B0 = 1 * u.T
+    Bz = np.ones(grid_shape) * B0
+    grid.add_quantities(B_z=Bz)
+
+    v_x = rng.integers(1, 10, size=100) * u.m / u.s
+    v = np.array([[v_x_element.value, 0, 0] for v_x_element in v_x]) * u.m / u.s
+    point_particle = CustomParticle(1 * u.kg, 1 * u.C)
+
+    # Set the initial position to the gyroradius
+    # This means the particle will orbit the origin
+    R_L = gyroradius(B0, point_particle, Vperp=v_x)
+    x = np.array([[0, R_L_element.value, 0] for R_L_element in R_L]) * u.m
+
+    termination_time = 5 * np.max(1 / gyrofrequency(Bz, point_particle)).to(
+        u.s, equivalencies=u.dimensionless_angles()
+    )
+    termination_condition = TimeElapsedTerminationCondition(termination_time)
+
+    # Ignore non-zero boundary values of grid
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore", message="Quantities should go to zero at edges of grid"
+        )
+        sim1 = ParticleTracker(grid, termination_condition)
+        sim2 = ParticleTracker(grid, termination_condition)
+
+    sim1.setup_adaptive_time_step(time_steps_per_gyroperiod=100)
+    sim1.load_particles(x, v, point_particle)
+    sim1.run()
+
+    sim2.setup_adaptive_time_step(time_steps_per_gyroperiod=100)
+    sim2.load_particles(x, v, point_particle)
+    sim2.run_parallel()
+
+    # TODO: compare that the final values are the same
+
+
 class TestParticleTrackerGyroradius:
     v_x = rng.integers(1, 10, size=100) * u.m / u.s
 

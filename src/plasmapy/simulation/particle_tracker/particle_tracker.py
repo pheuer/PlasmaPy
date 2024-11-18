@@ -41,6 +41,17 @@ _c = const.c
 _m_p = const.m_p
 
 
+def _run_proc(x):
+    """Run a ParticleTracker, return x,v.
+
+    Used to run in parallel.
+    """
+    sim, s = x
+    sim.verbose = False
+    sim.run()
+    return sim.x, sim.v, s
+
+
 class ParticleTracker:
     r"""A particle tracker for particles in electric and magnetic fields without inter-particle interactions.
 
@@ -711,6 +722,61 @@ class ParticleTracker:
         pbar.close()
 
         self._log("Run completed")
+
+    def run_parallel(self, batch_size=int(1e5), ncores=None):
+        """
+        Run the tracker repeatedly in parallel.
+        """
+        import copy
+        import multiprocessing as mp
+
+        if batch_size is None:
+            batch_size = int(np.ceil(self.num_particles / 1e5))
+
+        if ncores is None:
+            ncores = mp.cpu_count() - 1
+
+        batches = int(np.ceil(self.num_particles / batch_size))
+
+        # Make a copy of the Tracker object for each process
+        TASKS = []
+        for i in range(batches):
+            tracker = copy.deepcopy(self)
+            if i == batches - 1:
+                s = np.s_[int(i * batch_size) : -1, :]
+            else:
+                s = np.s_[int(i * batch_size) : int((i + 1) * batch_size), :]
+
+            tracker.x = tracker.x[s]
+            tracker.v = tracker.v[s]
+            TASKS.append((tracker, s))
+
+        with mp.Pool(processes=ncores) as pool:
+            results = pool.map_async(_run_proc, TASKS).get()
+
+            # close the process pool
+            pool.close()
+            # wait for all tasks to complete
+            pool.join()
+
+        for res in results:
+            s = res[-1]
+            self.x[s] = res[0]
+            self.v[s] = res[1]
+
+        # Regenerate the cache for this tracker so vmax, etc. are recalculated
+        # for the new arrays
+        self._reset_cache()
+
+        # Simulation has finished running
+        self._has_run = True
+
+        # Force save of the final state of the simulation if a save routine is
+        # provided
+        if self.save_routine is not None:
+            self.save_routine.save()
+
+        self._log("Multiprocessing run completed")
 
     @property
     def num_entered(self):
