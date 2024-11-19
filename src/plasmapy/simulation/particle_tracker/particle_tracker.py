@@ -641,8 +641,23 @@ class ParticleTracker:
         self._E = np.zeros((self.num_particles, 3))
         self._B = np.zeros((self.num_particles, 3))
 
-    def _setup_for_run(self) -> None:
-        """Create variables prior to run()."""
+    def run(self) -> None:
+        r"""
+        Runs a particle-tracing simulation.
+        Time steps are adaptively calculated based on the local grid resolution
+        of the particles and the electric and magnetic fields they are
+        experiencing.
+
+        Returns
+        -------
+        None
+
+        """
+
+        self._enforce_particle_creation()
+
+        self._setup_for_interpolator()
+
         # Keep track of how many push steps have occurred for trajectory tracing
         # This number is independent of the current "time" of the simulation
         self.iteration_number = 0
@@ -663,23 +678,6 @@ class ParticleTracker:
         self.ever_entered_any_grid: NDArray[np.bool_] = np.zeros(
             [self.num_particles]
         ).astype(np.bool_)
-
-    def run(self) -> None:
-        r"""
-        Runs a particle-tracing simulation.
-        Time steps are adaptively calculated based on the local grid resolution
-        of the particles and the electric and magnetic fields they are
-        experiencing.
-
-        Returns
-        -------
-        None
-
-        """
-
-        self._enforce_particle_creation()
-
-        self._setup_for_interpolator()
 
         # Initialize a "progress bar" (really more of a meter)
         # Setting sys.stdout lets this play nicely with regular print()
@@ -752,6 +750,11 @@ class ParticleTracker:
             tracker.x = tracker.x[s]
             tracker.v = tracker.v[s]
             tracker.num_particles = tracker.x.shape[0]
+
+            # Re-assign the termination condition to this tracker obj.
+            tracker.termination_condition.tracker = tracker
+            tracker.save_routine = None
+
             TASKS.append((tracker, s))
 
         with mp.Pool(processes=ncores) as pool:
@@ -761,6 +764,8 @@ class ParticleTracker:
             pool.close()
             # wait for all tasks to complete
             pool.join()
+
+        # Trick the main tracker into thinking it
 
         for res in results:
             s = res[-1]
